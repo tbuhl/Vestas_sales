@@ -1161,14 +1161,6 @@ def render_information_page() -> None:
         "Navigate tabs from high-level trends (Overall/Yearly/Quarterly) to deep dives (Across Years, Platform, Country, Delivery, Correlations)."
     )
 
-    st.markdown("**About me**")
-    st.write(
-        "Thomas Buhl is a wind-energy engineering leader with 20+ years across research and industry, including professor/department-head and director/VP roles."
-    )
-    st.write(
-        "He combines deep technical expertise in wind turbine design and optimization with international people leadership and strategy execution."
-    )
-
     st.markdown("**Disclaimer**")
     st.write(
         "This dashboard is provided for informational purposes only. Data is compiled from public sources and may contain gaps, delays, or inaccuracies."
@@ -1199,6 +1191,14 @@ def render_information_page() -> None:
         "The dataset in this repository is my own compilation (selection/structure) based on publicly available sources."
     )
     st.write("Underlying source documents remain the property of their respective owners.")
+
+    st.markdown("**About me**")
+    st.write(
+        "Thomas Buhl is a wind-energy engineering leader with 20+ years across research and industry, including professor/department-head and director/VP roles."
+    )
+    st.write(
+        "He combines deep technical expertise in wind turbine design and optimization with international people leadership and strategy execution."
+    )
 
 
 def render_overall_economics(economy: pd.DataFrame) -> None:
@@ -1384,17 +1384,6 @@ def render_overall_economics(economy: pd.DataFrame) -> None:
         )
         fig_custom.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig_custom, width="stretch")
-
-    st.markdown("**All Economy Parameters (Rows 0-40)**")
-    econ_table = (
-        economy.pivot(index="metric", columns="year", values="value")
-        .sort_index()
-        .reset_index()
-        .rename(columns={"metric": "Parameter"})
-    )
-    econ_table.columns = [str(c) for c in econ_table.columns]
-    st.dataframe(econ_table, width="stretch", hide_index=True)
-
 
 def render_yearly_overview(orders: pd.DataFrame, platforms: pd.DataFrame, unannounced: pd.DataFrame) -> None:
     st.subheader("Year-by-Year Order Intake Overview")
