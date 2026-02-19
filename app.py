@@ -207,6 +207,13 @@ def apply_page_style(dark_mode: bool) -> None:
         card_bg = "rgba(19, 29, 42, 0.82)"
         card_border = "rgba(92, 140, 190, 0.25)"
         frame_border = "rgba(92, 140, 190, 0.2)"
+        metric_label_color = "#c8d7e8"
+        metric_value_color = "#f2f7ff"
+        metric_delta_color = "#f2f7ff"
+        tab_bg = "rgba(19, 29, 42, 0.78)"
+        tab_active_bg = "rgba(46, 102, 176, 0.48)"
+        tab_text_color = "#cedcf0"
+        tab_active_text_color = "#ffffff"
     else:
         text_color = "#102132"
         bg_main = (
@@ -220,6 +227,13 @@ def apply_page_style(dark_mode: bool) -> None:
         card_bg = "rgba(255,255,255,0.85)"
         card_border = "rgba(33, 63, 92, 0.12)"
         frame_border = "rgba(33, 63, 92, 0.12)"
+        metric_label_color = "#34516b"
+        metric_value_color = "#102132"
+        metric_delta_color = "#102132"
+        tab_bg = "rgba(255, 255, 255, 0.78)"
+        tab_active_bg = "rgba(215, 231, 245, 0.95)"
+        tab_text_color = "#284158"
+        tab_active_text_color = "#102132"
 
     st.markdown(
         f"""
@@ -309,9 +323,36 @@ div[data-testid="stMetric"] {{
   padding: 0.4rem 0.8rem;
 }}
 
+div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {{
+  color: {metric_label_color} !important;
+}}
+
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
+  color: {metric_value_color} !important;
+}}
+
 div[data-testid="stMetricDelta"] {{
+  color: {metric_delta_color} !important;
   font-size: 0.72rem !important;
   line-height: 1.05 !important;
+}}
+
+.stTabs [data-baseweb="tab-list"] {{
+  gap: 0.35rem;
+}}
+
+.stTabs [data-baseweb="tab"] {{
+  background: {tab_bg};
+  border: 1px solid {card_border};
+  color: {tab_text_color} !important;
+  border-radius: 10px 10px 0 0;
+  padding-top: 0.4rem;
+  padding-bottom: 0.45rem;
+}}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {{
+  background: {tab_active_bg} !important;
+  color: {tab_active_text_color} !important;
 }}
 
 div[data-testid="stVerticalBlock"] div[data-testid="stDataFrame"] {{
@@ -1025,23 +1066,29 @@ def render_information_page() -> None:
     st.write(
         "Always verify critical figures with official company reporting before using the information for financial, legal, strategic, or investment decisions."
     )
-    st.markdown(
-        """
-## Sources and attribution
-All figures are compiled manually from Vestas public investor communications (press releases/announcements) and annual reports.
-Each datapoint should be verified against the original source documents.
-
-## No affiliation / no endorsement
-This is an unofficial, independent dashboard and is not affiliated with, endorsed by, or sponsored by Vestas.
-
-## IP and rights
-The dataset in this repository is my own compilation (selection/structure) based on publicly available sources.
-Underlying source documents remain the property of their respective owners.
-
-## Disclaimer
-The data and dashboard are provided "as is" without warranties of any kind. I make no guarantees of accuracy, completeness, or fitness for a particular purpose. Use at your own risk. I am not responsible or liable for any losses or damages arising from use of the data or dashboard.
-"""
+    st.write(
+        'The data and dashboard are provided "as is" without warranties of any kind. I make no guarantees of accuracy, completeness, or fitness for a particular purpose.'
     )
+    st.write(
+        "Use at your own risk. I am not responsible or liable for any losses or damages arising from use of the data or dashboard."
+    )
+
+    st.markdown("**Sources and attribution**")
+    st.write(
+        "All figures are compiled manually from Vestas public investor communications (press releases/announcements) and annual reports."
+    )
+    st.write("Each datapoint should be verified against the original source documents.")
+
+    st.markdown("**No affiliation / no endorsement**")
+    st.write(
+        "This is an unofficial, independent dashboard and is not affiliated with, endorsed by, or sponsored by Vestas."
+    )
+
+    st.markdown("**IP and rights**")
+    st.write(
+        "The dataset in this repository is my own compilation (selection/structure) based on publicly available sources."
+    )
+    st.write("Underlying source documents remain the property of their respective owners.")
 
 
 def render_overall_economics(economy: pd.DataFrame) -> None:
@@ -2452,7 +2499,7 @@ def apply_global_filters(
 def main() -> None:
     st.set_page_config(page_title=APP_TITLE, page_icon="W", layout="wide")
     if "dark_mode" not in st.session_state:
-        st.session_state["dark_mode"] = False
+        st.session_state["dark_mode"] = True
     st.sidebar.toggle("Dark mode", key="dark_mode")
     dark_mode = bool(st.session_state.get("dark_mode", False))
     apply_page_style(dark_mode)
