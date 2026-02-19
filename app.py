@@ -75,6 +75,88 @@ COUNTRY_MAP = {
     "un disclosed": "Undisclosed",
 }
 
+GEO_COUNTRY_OVERRIDES = {
+    "United States and Canada": "United States",
+    "United Kingdom - Offshore": "United Kingdom",
+    "Wales": "United Kingdom",
+    "Unknown": None,
+    "EU": None,
+    "NotMentioned": None,
+    "Undisclosed": None,
+}
+
+COUNTRY_ISO3_MAP = {
+    "Argentina": "ARG",
+    "Australia": "AUS",
+    "Austria": "AUT",
+    "Belgium": "BEL",
+    "Bolivia": "BOL",
+    "Brazil": "BRA",
+    "Bulgaria": "BGR",
+    "Canada": "CAN",
+    "Cape Verde": "CPV",
+    "Chile": "CHL",
+    "China": "CHN",
+    "Colombia": "COL",
+    "Costa Rica": "CRI",
+    "Croatia": "HRV",
+    "Cyprus": "CYP",
+    "Denmark": "DNK",
+    "Dominican Republic": "DOM",
+    "Egypt": "EGY",
+    "El Salvador": "SLV",
+    "Estonia": "EST",
+    "Finland": "FIN",
+    "France": "FRA",
+    "Germany": "DEU",
+    "Greece": "GRC",
+    "Guatemala": "GTM",
+    "Honduras": "HND",
+    "Hungary": "HUN",
+    "India": "IND",
+    "Ireland": "IRL",
+    "Italy": "ITA",
+    "Jamaica": "JAM",
+    "Japan": "JPN",
+    "Jordan": "JOR",
+    "Kazakhstan": "KAZ",
+    "Kenya": "KEN",
+    "Latvia": "LVA",
+    "Lithuania": "LTU",
+    "Mexico": "MEX",
+    "Mongolia": "MNG",
+    "Morocco": "MAR",
+    "Netherlands": "NLD",
+    "New Zealand": "NZL",
+    "Nicaragua": "NIC",
+    "Norway": "NOR",
+    "Pakistan": "PAK",
+    "Panama": "PAN",
+    "Peru": "PER",
+    "Philippines": "PHL",
+    "Poland": "POL",
+    "Portugal": "PRT",
+    "Puerto Rico": "PRI",
+    "Romania": "ROU",
+    "Russia": "RUS",
+    "Saudi Arabia": "SAU",
+    "Senegal": "SEN",
+    "Serbia": "SRB",
+    "South Africa": "ZAF",
+    "South Korea": "KOR",
+    "Spain": "ESP",
+    "Sri Lanka": "LKA",
+    "Sweden": "SWE",
+    "Taiwan": "TWN",
+    "Thailand": "THA",
+    "Turkey": "TUR",
+    "Ukraine": "UKR",
+    "United Kingdom": "GBR",
+    "United States": "USA",
+    "Uruguay": "URY",
+    "Vietnam": "VNM",
+}
+
 SUMMARY_LABELS = {
     "# mw",
     "# of sites",
@@ -120,6 +202,8 @@ def apply_page_style(dark_mode: bool) -> None:
             "linear-gradient(180deg, #0d1118 0%, #0a1016 100%)"
         )
         bg_sidebar = "linear-gradient(180deg, #111926 0%, #0d1520 100%)"
+        header_bg = "rgba(10, 16, 24, 0.96)"
+        header_border = "rgba(92, 140, 190, 0.25)"
         card_bg = "rgba(19, 29, 42, 0.82)"
         card_border = "rgba(92, 140, 190, 0.25)"
         frame_border = "rgba(92, 140, 190, 0.2)"
@@ -131,6 +215,8 @@ def apply_page_style(dark_mode: bool) -> None:
             "linear-gradient(180deg, #f7fafc 0%, #ecf2f7 100%)"
         )
         bg_sidebar = "linear-gradient(180deg, #f3f7fb 0%, #e9f0f7 100%)"
+        header_bg = "rgba(247, 250, 252, 0.96)"
+        header_border = "rgba(33, 63, 92, 0.12)"
         card_bg = "rgba(255,255,255,0.85)"
         card_border = "rgba(33, 63, 92, 0.12)"
         frame_border = "rgba(33, 63, 92, 0.12)"
@@ -139,8 +225,10 @@ def apply_page_style(dark_mode: bool) -> None:
         f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..700,0..1,-50..200');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
-html, body, [class*="st-"] {{
+html, body, .stApp {{
   font-family: 'Manrope', sans-serif;
   color: {text_color};
 }}
@@ -158,12 +246,42 @@ section[data-testid="stSidebar"] * {{
   color: {text_color};
 }}
 
+section[data-testid="stSidebar"] > div:first-child {{
+  height: 100vh;
+}}
+
+section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {{
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+}}
+
+[data-testid="stHeader"],
+[data-testid="stToolbar"] {{
+  background: {header_bg} !important;
+  border-bottom: 1px solid {header_border} !important;
+}}
+
+[data-testid="stDecoration"] {{
+  background: transparent !important;
+}}
+
 /* Restore Streamlit/Material icon rendering (prevents ligature text such as keyboard_double_arrow_right) */
-span.material-icons,
-span.material-symbols-rounded,
-i.material-icons,
-[data-testid="stSidebarCollapseButton"] span {{
-  font-family: "Material Symbols Rounded", "Material Icons" !important;
+[class*="material-icons"],
+[class*="material-symbols"],
+[data-testid="stHeader"] button span,
+[data-testid="stToolbar"] button span,
+[data-testid="collapsedControl"] span,
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stSidebarNav"] button span,
+button[aria-label*="sidebar"] span,
+button[aria-label*="Sidebar"] span,
+button[title*="sidebar"] span,
+button[title*="Sidebar"] span {{
+  font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+  font-feature-settings: "liga" 1, "calt" 1;
+  -webkit-font-feature-settings: "liga" 1, "calt" 1;
   font-weight: normal;
   font-style: normal;
   letter-spacing: normal;
@@ -191,9 +309,32 @@ div[data-testid="stMetric"] {{
   padding: 0.4rem 0.8rem;
 }}
 
+div[data-testid="stMetricDelta"] {{
+  font-size: 0.72rem !important;
+  line-height: 1.05 !important;
+}}
+
 div[data-testid="stVerticalBlock"] div[data-testid="stDataFrame"] {{
   border: 1px solid {frame_border};
   border-radius: 10px;
+}}
+
+.sidebar-footer {{
+  padding: 0.35rem 0.45rem 0.05rem 0.45rem;
+  border-top: 1px solid {frame_border};
+  font-size: 0.62rem;
+  line-height: 1.2;
+  opacity: 0.8;
+}}
+
+.sidebar-footer-wrap {{
+  margin-top: auto;
+  margin-left: 0.15rem;
+  margin-right: 0.15rem;
+  margin-bottom: 0.2rem;
+  background: {card_bg};
+  border: 1px solid {card_border};
+  border-radius: 8px;
 }}
 </style>
         """,
@@ -296,6 +437,29 @@ def normalize_country(value: Any) -> str:
     if norm.startswith("#"):
         return "Unknown"
     return text
+
+
+def map_country_for_geo(country: Any) -> str | None:
+    text = clean_text(country)
+    if text is None:
+        return None
+    text = GEO_COUNTRY_OVERRIDES.get(text, text)
+    if text is None:
+        return None
+    return COUNTRY_ISO3_MAP.get(text)
+
+
+def render_sidebar_footer() -> None:
+    st.sidebar.markdown(
+        """
+<div class="sidebar-footer-wrap">
+  <div class="sidebar-footer">
+  Unofficial dashboard - not affiliated with or endorsed by Vestas. Data compiled manually from public Vestas reports/announcements; verify against original sources. Provided "as is" without warranty.
+  </div>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def normalize_service_scheme(value: Any) -> str:
@@ -807,9 +971,13 @@ def top_n_by_mw(df: pd.DataFrame, col: str, value_col: str, n: int) -> list[str]
     return grouped[col].tolist()
 
 
-def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
+def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame, unannounced: pd.DataFrame) -> None:
     total_orders = orders["order_id"].nunique()
-    total_mw = orders["size_mw"].sum()
+    announced_mw = orders["size_mw"].sum()
+    unannounced_mw = 0.0
+    if unannounced is not None and not unannounced.empty and "unannounced_mw" in unannounced.columns:
+        unannounced_mw = float(pd.to_numeric(unannounced["unannounced_mw"], errors="coerce").fillna(0).sum())
+    total_mw = announced_mw + unannounced_mw
     total_platform_mw = platforms["slot_mw"].sum()
     avg_order_mw = orders["size_mw"].mean()
     avg_delivery_days = orders["delivery_days"].mean()
@@ -817,7 +985,12 @@ def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame) -> None
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Orders", int_fmt(total_orders))
-    m2.metric("Ordered MW", mw_fmt(total_mw))
+    m2.metric(
+        "Ordered MW",
+        mw_fmt(total_mw),
+        delta=f"hereof unannounced {unannounced_mw:,.0f} MW",
+        delta_color="off",
+    )
     m3.metric("Platform-Mapped MW", mw_fmt(total_platform_mw))
     m4.metric("Avg Order Size", mw_fmt(avg_order_mw))
     m5.metric("Avg Delivery Time", days_fmt(avg_delivery_days))
@@ -851,6 +1024,23 @@ def render_information_page() -> None:
     )
     st.write(
         "Always verify critical figures with official company reporting before using the information for financial, legal, strategic, or investment decisions."
+    )
+    st.markdown(
+        """
+## Sources and attribution
+All figures are compiled manually from Vestas public investor communications (press releases/announcements) and annual reports.
+Each datapoint should be verified against the original source documents.
+
+## No affiliation / no endorsement
+This is an unofficial, independent dashboard and is not affiliated with, endorsed by, or sponsored by Vestas.
+
+## IP and rights
+The dataset in this repository is my own compilation (selection/structure) based on publicly available sources.
+Underlying source documents remain the property of their respective owners.
+
+## Disclaimer
+The data and dashboard are provided "as is" without warranties of any kind. I make no guarantees of accuracy, completeness, or fitness for a particular purpose. Use at your own risk. I am not responsible or liable for any losses or damages arising from use of the data or dashboard.
+"""
     )
 
 
@@ -937,10 +1127,10 @@ def render_overall_economics(economy: pd.DataFrame) -> None:
 
     avg_mw_price_metric = find_metric(["averagemwprice"]) or find_metric(["average", "mw", "price"])
 
-    latest_year = int(economy["year"].max())
-    latest = economy[economy["year"] == latest_year].set_index("metric")["value"]
-    prev = economy[economy["year"] == latest_year - 1].set_index("metric")["value"]
-
+    latest_year = int(econ["year"].max())
+    base_year = int(year_range[0])
+    latest = econ[econ["year"] == latest_year].set_index("metric")["value"]
+    baseline = econ[econ["year"] == base_year].set_index("metric")["value"]
     card_metrics = [
         revenue_metric,
         gross_profit_metric,
@@ -959,12 +1149,18 @@ def render_overall_economics(economy: pd.DataFrame) -> None:
             cols = st.columns(len(row_metrics))
             for col, metric_name in zip(cols, row_metrics, strict=False):
                 val = latest.get(metric_name, np.nan)
-                prev_val = prev.get(metric_name, np.nan)
-                delta = val - prev_val if pd.notna(val) and pd.notna(prev_val) else np.nan
+                value_text = "-"
+                if pd.notna(val):
+                    value_text = f"{format_metric_value(metric_name, val)} ({latest_year})"
+                base_val = baseline.get(metric_name, np.nan)
+                delta_text = None
+                if pd.notna(val) and pd.notna(base_val):
+                    delta_value = val - base_val
+                    delta_text = f"{delta_value:+,.2f} ({base_year})"
                 col.metric(
-                    f"{metric_name} ({latest_year})",
-                    format_metric_value(metric_name, val) if pd.notna(val) else "-",
-                    f"{delta:+,.3f}" if pd.notna(delta) else None,
+                    metric_name,
+                    value_text,
+                    delta=delta_text,
                 )
 
     g1, g2 = st.columns(2)
@@ -1032,14 +1228,15 @@ def render_overall_economics(economy: pd.DataFrame) -> None:
         fig_custom.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig_custom, width="stretch")
 
-    with st.expander("All Economy Parameters (Rows 0-40)"):
-        econ_table = (
-            economy.pivot(index="metric", columns="year", values="value")
-            .sort_index()
-            .reset_index()
-            .rename(columns={"metric": "Parameter"})
-        )
-        st.dataframe(econ_table, width="stretch", hide_index=True)
+    st.markdown("**All Economy Parameters (Rows 0-40)**")
+    econ_table = (
+        economy.pivot(index="metric", columns="year", values="value")
+        .sort_index()
+        .reset_index()
+        .rename(columns={"metric": "Parameter"})
+    )
+    econ_table.columns = [str(c) for c in econ_table.columns]
+    st.dataframe(econ_table, width="stretch", hide_index=True)
 
 
 def render_yearly_overview(orders: pd.DataFrame, platforms: pd.DataFrame, unannounced: pd.DataFrame) -> None:
@@ -1709,6 +1906,242 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
         st.plotly_chart(fig_d, width="stretch")
 
 
+def render_country_maps(
+    orders: pd.DataFrame,
+    platforms: pd.DataFrame,
+    selected_orders: pd.DataFrame,
+    selected_platforms: pd.DataFrame,
+) -> None:
+    st.markdown("### Zoomable Country Maps")
+    map_scope = st.radio(
+        "Map scope",
+        options=["All countries", "Selected countries"],
+        index=0,
+        horizontal=True,
+        key="country_map_scope",
+    )
+    if map_scope == "Selected countries":
+        map_orders = selected_orders.copy()
+        map_platforms = selected_platforms.copy()
+    else:
+        map_orders = orders.copy()
+        map_platforms = platforms.copy()
+
+    map_orders["size_mw"] = pd.to_numeric(map_orders["size_mw"], errors="coerce")
+    map_orders["service_time_years"] = pd.to_numeric(map_orders["service_time_years"], errors="coerce")
+    map_orders["delivery_days"] = pd.to_numeric(map_orders["delivery_days"], errors="coerce")
+
+    map_base = (
+        map_orders.groupby("country", as_index=False)
+        .agg(
+            total_mw=("size_mw", "sum"),
+            orders=("order_id", "nunique"),
+            avg_order_mw=("size_mw", "mean"),
+            avg_service_time=("service_time_years", "mean"),
+            min_service_time=("service_time_years", "min"),
+            max_service_time=("service_time_years", "max"),
+            avg_delivery_days=("delivery_days", "mean"),
+            median_delivery_days=("delivery_days", "median"),
+        )
+        .copy()
+    )
+
+    scheme_rank = (
+        map_orders.groupby(["country", "service_scheme"], as_index=False)["size_mw"]
+        .sum()
+        .sort_values(["country", "size_mw"], ascending=[True, False])
+        .drop_duplicates("country")
+        .rename(columns={"service_scheme": "dominant_service_scheme", "size_mw": "dominant_service_mw"})
+    )
+    map_base = map_base.merge(
+        scheme_rank[["country", "dominant_service_scheme", "dominant_service_mw"]],
+        on="country",
+        how="left",
+    )
+
+    valid_map_platforms = map_platforms[(map_platforms["platform"] != "Unknown") & (map_platforms["slot_mw"] > 0)].copy()
+    platform_rank = (
+        valid_map_platforms.groupby(["country", "platform"], as_index=False)["slot_mw"]
+        .sum()
+        .sort_values(["country", "slot_mw"], ascending=[True, False])
+        .drop_duplicates("country")
+        .rename(columns={"platform": "dominant_platform", "slot_mw": "dominant_platform_mw"})
+    )
+    map_base = map_base.merge(
+        platform_rank[["country", "dominant_platform", "dominant_platform_mw"]],
+        on="country",
+        how="left",
+    )
+    map_base["dominant_service_scheme"] = map_base["dominant_service_scheme"].fillna("Unknown")
+    map_base["dominant_platform"] = map_base["dominant_platform"].fillna("Unknown")
+
+    platform_options = ["All platforms"]
+    if not valid_map_platforms.empty:
+        platform_options.extend(sorted(valid_map_platforms["platform"].dropna().unique().tolist()))
+    selected_platform = st.selectbox(
+        "Platform overlay for maps",
+        options=platform_options,
+        index=0,
+        key="country_map_platform_overlay",
+    )
+
+    if valid_map_platforms.empty:
+        overlay = pd.DataFrame(columns=["country", "platform_overlay_mw"])
+    elif selected_platform == "All platforms":
+        overlay = (
+            valid_map_platforms.groupby("country", as_index=False)["slot_mw"]
+            .sum()
+            .rename(columns={"slot_mw": "platform_overlay_mw"})
+        )
+    else:
+        overlay = (
+            valid_map_platforms[valid_map_platforms["platform"] == selected_platform]
+            .groupby("country", as_index=False)["slot_mw"]
+            .sum()
+            .rename(columns={"slot_mw": "platform_overlay_mw"})
+        )
+
+    map_base = map_base.merge(overlay, on="country", how="left")
+    map_base["platform_overlay_mw"] = pd.to_numeric(map_base["platform_overlay_mw"], errors="coerce").fillna(0.0)
+    map_base["iso3"] = map_base["country"].map(map_country_for_geo)
+    map_geo = map_base[map_base["iso3"].notna()].copy()
+
+    if map_geo.empty:
+        st.info("No mappable countries available for the current scope.")
+        return
+
+    map_metric_labels = {
+        "total_mw": "Total sold MW",
+        "platform_overlay_mw": f"Sold MW for {selected_platform}",
+        "orders": "Number of orders",
+        "avg_service_time": "Average service length (years)",
+        "avg_delivery_days": "Average delivery time (days)",
+    }
+    size_metric_labels = {
+        "total_mw": "Total sold MW",
+        "platform_overlay_mw": f"Sold MW for {selected_platform}",
+        "orders": "Number of orders",
+    }
+    color_metric_labels = {
+        "avg_service_time": "Average service length (years)",
+        "avg_delivery_days": "Average delivery time (days)",
+        "orders": "Number of orders",
+    }
+
+    c5, c6, c7 = st.columns(3)
+    with c5:
+        choropleth_metric = st.selectbox(
+            "Choropleth metric",
+            options=list(map_metric_labels.keys()),
+            format_func=lambda k: map_metric_labels[k],
+            key="country_map_choropleth_metric",
+        )
+    with c6:
+        bubble_size_metric = st.selectbox(
+            "Bubble size metric",
+            options=list(size_metric_labels.keys()),
+            format_func=lambda k: size_metric_labels[k],
+            key="country_map_bubble_size_metric",
+        )
+    with c7:
+        bubble_color_metric = st.selectbox(
+            "Bubble color metric",
+            options=list(color_metric_labels.keys()),
+            format_func=lambda k: color_metric_labels[k],
+            key="country_map_bubble_color_metric",
+        )
+
+    map_geo[choropleth_metric] = pd.to_numeric(map_geo[choropleth_metric], errors="coerce")
+    map_geo[bubble_size_metric] = pd.to_numeric(map_geo[bubble_size_metric], errors="coerce")
+    map_geo[bubble_color_metric] = pd.to_numeric(map_geo[bubble_color_metric], errors="coerce")
+    map_geo["orders"] = pd.to_numeric(map_geo["orders"], errors="coerce")
+
+    choropleth_data = map_geo.dropna(subset=[choropleth_metric]).copy()
+    if choropleth_metric in {"total_mw", "platform_overlay_mw", "orders"}:
+        choropleth_data = choropleth_data[choropleth_data[choropleth_metric] > 0]
+
+    bubble_data = map_geo.dropna(subset=[bubble_size_metric]).copy()
+    bubble_data = bubble_data[bubble_data[bubble_size_metric] > 0]
+    if bubble_data[bubble_color_metric].notna().any():
+        bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
+    else:
+        bubble_color_metric = "orders"
+        bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
+
+    m1, m2 = st.columns(2)
+    with m1:
+        if choropleth_data.empty:
+            st.info("No values available for the selected choropleth metric.")
+        else:
+            fig_map = px.choropleth(
+                choropleth_data,
+                locations="iso3",
+                locationmode="ISO-3",
+                color=choropleth_metric,
+                hover_name="country",
+                hover_data={
+                    "total_mw": ":,.0f",
+                    "platform_overlay_mw": ":,.0f",
+                    "orders": ":,.0f",
+                    "avg_service_time": ":.2f",
+                    "avg_delivery_days": ":,.0f",
+                    "dominant_platform": True,
+                    "dominant_service_scheme": True,
+                    "iso3": False,
+                },
+                template=plotly_template(),
+                color_continuous_scale="YlGnBu",
+                title=f"Zoomable Choropleth: {map_metric_labels[choropleth_metric]}",
+                height=560,
+            )
+            fig_map.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+            fig_map.update_layout(
+                coloraxis_colorbar_title=map_metric_labels[choropleth_metric],
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_map, width="stretch")
+
+    with m2:
+        if bubble_data.empty:
+            st.info("No values available for the selected bubble map metrics.")
+        else:
+            bubble_data["_bubble_size"] = bubble_data[bubble_size_metric].clip(lower=0.1)
+            fig_bubble = px.scatter_geo(
+                bubble_data,
+                locations="iso3",
+                locationmode="ISO-3",
+                size="_bubble_size",
+                color=bubble_color_metric,
+                hover_name="country",
+                hover_data={
+                    "total_mw": ":,.0f",
+                    "platform_overlay_mw": ":,.0f",
+                    "orders": ":,.0f",
+                    "avg_service_time": ":.2f",
+                    "avg_delivery_days": ":,.0f",
+                    "dominant_platform": True,
+                    "dominant_service_scheme": True,
+                    "_bubble_size": False,
+                    "iso3": False,
+                },
+                size_max=45,
+                projection="natural earth",
+                template=plotly_template(),
+                color_continuous_scale="Turbo",
+                title=(
+                    f"Zoomable Bubble Map: size={size_metric_labels[bubble_size_metric]}, "
+                    f"color={color_metric_labels[bubble_color_metric]}"
+                ),
+                height=560,
+            )
+            fig_bubble.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+            fig_bubble.update_layout(
+                coloraxis_colorbar_title=color_metric_labels[bubble_color_metric],
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_bubble, width="stretch")
+
+
 def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
     st.subheader("Across Countries")
     if orders.empty:
@@ -1728,6 +2161,8 @@ def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
     if o.empty:
         st.info("No rows available for selected countries.")
         return
+
+    render_country_maps(orders, platforms, o, p)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -2018,8 +2453,8 @@ def main() -> None:
     st.set_page_config(page_title=APP_TITLE, page_icon="W", layout="wide")
     if "dark_mode" not in st.session_state:
         st.session_state["dark_mode"] = False
-    dark_mode = st.sidebar.toggle("Dark mode", value=st.session_state["dark_mode"])
-    st.session_state["dark_mode"] = dark_mode
+    st.sidebar.toggle("Dark mode", key="dark_mode")
+    dark_mode = bool(st.session_state.get("dark_mode", False))
     apply_page_style(dark_mode)
 
     st.title(APP_TITLE)
@@ -2039,12 +2474,13 @@ def main() -> None:
         return
 
     orders_f, platforms_f, unannounced_f = apply_global_filters(orders, platforms, unannounced)
+    render_sidebar_footer()
 
     if orders_f.empty:
         st.warning("Filters returned no rows. Adjust the sidebar filters.")
         return
 
-    render_header_metrics(orders_f, platforms_f)
+    render_header_metrics(orders_f, platforms_f, unannounced_f)
     tabs = st.tabs(
         [
             "Overall Economics",
