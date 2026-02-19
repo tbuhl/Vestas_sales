@@ -157,6 +157,86 @@ COUNTRY_ISO3_MAP = {
     "Vietnam": "VNM",
 }
 
+COUNTRY_REGION_CONTINENT = {
+    "Argentina": ("South America", "Americas"),
+    "Australia": ("Oceania", "Oceania"),
+    "Austria": ("Western Europe", "Europe"),
+    "Belgium": ("Western Europe", "Europe"),
+    "Bolivia": ("South America", "Americas"),
+    "Brazil": ("South America", "Americas"),
+    "Bulgaria": ("Eastern Europe", "Europe"),
+    "Canada": ("North America", "Americas"),
+    "Cape Verde": ("West Africa", "Africa"),
+    "Chile": ("South America", "Americas"),
+    "China": ("East Asia", "Asia"),
+    "Colombia": ("South America", "Americas"),
+    "Costa Rica": ("Central America", "Americas"),
+    "Croatia": ("Southern Europe", "Europe"),
+    "Cyprus": ("Southern Europe", "Europe"),
+    "Denmark": ("Northern Europe", "Europe"),
+    "Dominican Republic": ("Caribbean", "Americas"),
+    "Egypt": ("North Africa", "Africa"),
+    "El Salvador": ("Central America", "Americas"),
+    "Estonia": ("Northern Europe", "Europe"),
+    "EU": ("Europe", "Europe"),
+    "Finland": ("Northern Europe", "Europe"),
+    "France": ("Western Europe", "Europe"),
+    "Germany": ("Western Europe", "Europe"),
+    "Greece": ("Southern Europe", "Europe"),
+    "Guatemala": ("Central America", "Americas"),
+    "Honduras": ("Central America", "Americas"),
+    "Hungary": ("Eastern Europe", "Europe"),
+    "India": ("South Asia", "Asia"),
+    "Ireland": ("Northern Europe", "Europe"),
+    "Italy": ("Southern Europe", "Europe"),
+    "Jamaica": ("Caribbean", "Americas"),
+    "Japan": ("East Asia", "Asia"),
+    "Jordan": ("Middle East", "Asia"),
+    "Kazakhstan": ("Central Asia", "Asia"),
+    "Kenya": ("East Africa", "Africa"),
+    "Latvia": ("Northern Europe", "Europe"),
+    "Lithuania": ("Northern Europe", "Europe"),
+    "Mexico": ("North America", "Americas"),
+    "Mongolia": ("East Asia", "Asia"),
+    "Morocco": ("North Africa", "Africa"),
+    "Netherlands": ("Western Europe", "Europe"),
+    "New Zealand": ("Oceania", "Oceania"),
+    "Nicaragua": ("Central America", "Americas"),
+    "Norway": ("Northern Europe", "Europe"),
+    "Pakistan": ("South Asia", "Asia"),
+    "Panama": ("Central America", "Americas"),
+    "Peru": ("South America", "Americas"),
+    "Philippines": ("Southeast Asia", "Asia"),
+    "Poland": ("Eastern Europe", "Europe"),
+    "Portugal": ("Southern Europe", "Europe"),
+    "Puerto Rico": ("Caribbean", "Americas"),
+    "Romania": ("Eastern Europe", "Europe"),
+    "Russia": ("Eastern Europe", "Europe"),
+    "Saudi Arabia": ("Middle East", "Asia"),
+    "Senegal": ("West Africa", "Africa"),
+    "Serbia": ("Southern Europe", "Europe"),
+    "South Africa": ("Southern Africa", "Africa"),
+    "South Korea": ("East Asia", "Asia"),
+    "Spain": ("Southern Europe", "Europe"),
+    "Sri Lanka": ("South Asia", "Asia"),
+    "Sweden": ("Northern Europe", "Europe"),
+    "Taiwan": ("East Asia", "Asia"),
+    "Thailand": ("Southeast Asia", "Asia"),
+    "Turkey": ("Middle East", "Asia"),
+    "Ukraine": ("Eastern Europe", "Europe"),
+    "United Kingdom": ("Northern Europe", "Europe"),
+    "United Kingdom - Offshore": ("Northern Europe", "Europe"),
+    "United States": ("North America", "Americas"),
+    "United States and Canada": ("North America", "Americas"),
+    "Unknown": ("Unknown", "Unknown"),
+    "Undisclosed": ("Unknown", "Unknown"),
+    "Uruguay": ("South America", "Americas"),
+    "Vietnam": ("Southeast Asia", "Asia"),
+    "Wales": ("Northern Europe", "Europe"),
+}
+
+COUNTRY_REGION_CONTINENT_LOWER = {k.lower(): v for k, v in COUNTRY_REGION_CONTINENT.items()}
+
 SUMMARY_LABELS = {
     "# mw",
     "# of sites",
@@ -490,6 +570,27 @@ def map_country_for_geo(country: Any) -> str | None:
     return COUNTRY_ISO3_MAP.get(text)
 
 
+def country_region_continent(country: Any) -> tuple[str, str]:
+    text = clean_text(country)
+    if text is None:
+        return "Unknown", "Unknown"
+    mapped = COUNTRY_REGION_CONTINENT.get(text)
+    if mapped is not None:
+        return mapped
+    return COUNTRY_REGION_CONTINENT_LOWER.get(text.lower(), ("Unknown", "Unknown"))
+
+
+def apply_region_continent_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "country" not in df.columns:
+        return df
+
+    out = df.copy()
+    rc = out["country"].apply(country_region_continent)
+    out["region"] = rc.apply(lambda t: t[0])
+    out["continent"] = rc.apply(lambda t: t[1])
+    return out
+
+
 def render_sidebar_footer() -> None:
     st.sidebar.markdown(
         """
@@ -816,6 +917,7 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
                 delivery_days = float((q_end - order_date).days)
 
             country = normalize_country(row.get("country"))
+            region, continent = country_region_continent(country)
             service_scheme = normalize_service_scheme(row.get("Service scheme"))
             customer = normalize_customer(row.get("customer"))
 
@@ -827,6 +929,8 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
                 "order_year": int(order_date.year) if pd.notna(order_date) else year,
                 "order_quarter": int(order_date.quarter) if pd.notna(order_date) else np.nan,
                 "country": country,
+                "region": region,
+                "continent": continent,
                 "service_scheme": service_scheme,
                 "service_time_years": service_time_years,
                 "customer": customer,
@@ -866,6 +970,8 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
                         "order_year": int(order_data["order_year"]),
                         "order_date": order_data["order_date"],
                         "country": country,
+                        "region": region,
+                        "continent": continent,
                         "service_scheme": service_scheme,
                         "service_time_years": service_time_years,
                         "customer": customer,
@@ -904,6 +1010,8 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
                             "order_year": int(order_data["order_year"]),
                             "order_date": order_data["order_date"],
                             "country": country,
+                            "region": region,
+                            "continent": continent,
                             "service_scheme": service_scheme,
                             "service_time_years": service_time_years,
                             "customer": customer,
@@ -924,6 +1032,8 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 
     orders = pd.DataFrame(order_rows)
     platforms = pd.DataFrame(platform_rows)
+    orders = apply_region_continent_columns(orders)
+    platforms = apply_region_continent_columns(platforms)
     unannounced = pd.DataFrame(unannounced_rows)
     if orders.empty:
         if unannounced.empty:
@@ -1386,6 +1496,58 @@ def render_yearly_overview(orders: pd.DataFrame, platforms: pd.DataFrame, unanno
         )
         st.plotly_chart(fig2, width="stretch")
 
+    continent_year = (
+        orders.groupby(["order_year", "continent"], as_index=False)["size_mw"]
+        .sum()
+        .sort_values(["continent", "order_year"])
+    )
+    if not continent_year.empty:
+        continent_year["cum_sold_mw"] = continent_year.groupby("continent")["size_mw"].cumsum()
+        yearly_totals = (
+            continent_year.groupby("order_year", as_index=False)["size_mw"]
+            .sum()
+            .rename(columns={"size_mw": "year_total_mw"})
+        )
+        continent_share = continent_year.merge(yearly_totals, on="order_year", how="left")
+        continent_share = continent_share[continent_share["year_total_mw"] > 0].copy()
+        continent_share["market_share_pct"] = 100.0 * continent_share["size_mw"] / continent_share["year_total_mw"]
+
+        c5, c6 = st.columns(2)
+        with c5:
+            fig_continent_cum = px.area(
+                continent_year,
+                x="order_year",
+                y="cum_sold_mw",
+                color="continent",
+                template=plotly_template(),
+                labels={"order_year": "Year", "cum_sold_mw": "Accumulated MW", "continent": ""},
+                title="Accumulated Sold MW by Continent",
+                height=430,
+            )
+            fig_continent_cum.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_continent_cum, width="stretch")
+
+        with c6:
+            fig_continent_share = px.bar(
+                continent_share,
+                x="order_year",
+                y="market_share_pct",
+                color="continent",
+                barmode="stack",
+                template=plotly_template(),
+                labels={"order_year": "Year", "market_share_pct": "Market share (%)", "continent": ""},
+                title="Continent Market Share by Year",
+                hover_data={"size_mw": ":,.0f", "year_total_mw": ":,.0f", "market_share_pct": ":.1f"},
+                height=430,
+            )
+            fig_continent_share.update_layout(
+                yaxis=dict(range=[0, 100], ticksuffix="%"),
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_continent_share, width="stretch")
+
+        st.caption("Accumulated chart uses announced order MW by continent.")
+
     st.dataframe(
         yearly.rename(
             columns={
@@ -1637,8 +1799,55 @@ def render_across_years(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
         fig.update_layout(margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig, width="stretch")
 
+        c_geo1, c_geo2 = st.columns(2)
+        with c_geo1:
+            continent_year = (
+                orders.groupby(["order_year", "continent"], as_index=False)["size_mw"]
+                .sum()
+                .sort_values("order_year")
+            )
+            if continent_year.empty:
+                st.info("No continent data available for current filters.")
+            else:
+                fig_cont = px.bar(
+                    continent_year,
+                    x="order_year",
+                    y="size_mw",
+                    color="continent",
+                    template=plotly_template(),
+                    labels={"size_mw": "MW", "order_year": "Year"},
+                    title="Continent MW Trends Across Years",
+                    height=430,
+                )
+                fig_cont.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_cont, width="stretch")
+
+        with c_geo2:
+            top_regions = top_n_by_mw(orders[orders["region"] != "Unknown"], "region", "size_mw", 10)
+            region_year = (
+                orders[orders["region"].isin(top_regions)]
+                .groupby(["order_year", "region"], as_index=False)["size_mw"]
+                .sum()
+                .sort_values("order_year")
+            )
+            if region_year.empty:
+                st.info("No region data available for current filters.")
+            else:
+                fig_reg = px.area(
+                    region_year,
+                    x="order_year",
+                    y="size_mw",
+                    color="region",
+                    template=plotly_template(),
+                    labels={"size_mw": "MW", "order_year": "Year"},
+                    title="Top Regions MW Trends Across Years",
+                    height=430,
+                )
+                fig_reg.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_reg, width="stretch")
+
         table = (
-            orders.groupby("country", as_index=False)
+            orders.groupby(["country", "region", "continent"], as_index=False)
             .agg(total_mw=("size_mw", "sum"), orders=("order_id", "nunique"), avg_order_mw=("size_mw", "mean"))
             .sort_values("total_mw", ascending=False)
             .head(20)
@@ -1992,6 +2201,9 @@ def render_country_maps(
         )
         .copy()
     )
+    rc = map_base["country"].apply(country_region_continent)
+    map_base["region"] = rc.apply(lambda t: t[0])
+    map_base["continent"] = rc.apply(lambda t: t[1])
 
     scheme_rank = (
         map_orders.groupby(["country", "service_scheme"], as_index=False)["size_mw"]
@@ -2132,6 +2344,8 @@ def render_country_maps(
                     "orders": ":,.0f",
                     "avg_service_time": ":.2f",
                     "avg_delivery_days": ":,.0f",
+                    "region": True,
+                    "continent": True,
                     "dominant_platform": True,
                     "dominant_service_scheme": True,
                     "iso3": False,
@@ -2166,6 +2380,8 @@ def render_country_maps(
                     "orders": ":,.0f",
                     "avg_service_time": ":.2f",
                     "avg_delivery_days": ":,.0f",
+                    "region": True,
+                    "continent": True,
                     "dominant_platform": True,
                     "dominant_service_scheme": True,
                     "_bubble_size": False,
@@ -2288,6 +2504,55 @@ def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
         )
         fig4.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig4, width="stretch")
+
+    c5, c6 = st.columns(2)
+    with c5:
+        continent_mw = (
+            o.groupby("continent", as_index=False)
+            .agg(total_mw=("size_mw", "sum"), orders=("order_id", "nunique"))
+            .sort_values("total_mw", ascending=False)
+        )
+        fig5 = px.bar(
+            continent_mw,
+            x="continent",
+            y="total_mw",
+            color="continent",
+            template=plotly_template(),
+            title="Across Countries: Continent Totals",
+            labels={"total_mw": "MW", "continent": ""},
+            height=430,
+        )
+        fig5.update_layout(showlegend=False, margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig5, width="stretch")
+
+    with c6:
+        region_stats = (
+            o.groupby("region", as_index=False)
+            .agg(
+                total_mw=("size_mw", "sum"),
+                avg_service_time=("service_time_years", "mean"),
+                avg_delivery_days=("delivery_days", "mean"),
+            )
+            .sort_values("total_mw", ascending=False)
+            .head(12)
+        )
+        region_stats = region_stats.dropna(subset=["avg_service_time", "avg_delivery_days"])
+        if region_stats.empty:
+            st.info("No complete region-level service/delivery data for current filters.")
+        else:
+            fig6 = px.scatter(
+                region_stats,
+                x="avg_service_time",
+                y="avg_delivery_days",
+                size="total_mw",
+                color="region",
+                template=plotly_template(),
+                title="Across Countries: Region Service vs Delivery",
+                labels={"avg_service_time": "Avg service time (years)", "avg_delivery_days": "Avg delivery days"},
+                height=430,
+            )
+            fig6.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig6, width="stretch")
 
 
 def render_delivery_capacity(orders: pd.DataFrame) -> None:
@@ -2457,14 +2722,21 @@ def apply_global_filters(
             unannounced = pd.DataFrame(columns=["sheet_name", "sheet_year", "quarter", "unannounced_mw"])
         return orders, platforms, unannounced
 
+    orders = apply_region_continent_columns(orders)
+    platforms = apply_region_continent_columns(platforms)
+
     st.sidebar.header("Global Filters")
     y_min, y_max = int(orders["order_year"].min()), int(orders["order_year"].max())
     year_range = st.sidebar.slider("Order year range", y_min, y_max, (y_min, y_max))
 
+    continents = sorted([c for c in orders["continent"].dropna().unique().tolist() if c != "Unknown"])
+    regions = sorted([r for r in orders["region"].dropna().unique().tolist() if r != "Unknown"])
     countries = sorted(orders["country"].dropna().unique().tolist())
     services = sorted(orders["service_scheme"].dropna().unique().tolist())
     platform_options = sorted(platforms["platform"].dropna().unique().tolist()) if not platforms.empty else []
 
+    selected_continents = st.sidebar.multiselect("Continents", options=continents, default=[])
+    selected_regions = st.sidebar.multiselect("Regions", options=regions, default=[])
     selected_countries = st.sidebar.multiselect("Countries", options=countries, default=[])
     selected_services = st.sidebar.multiselect("Service schemes", options=services, default=[])
     selected_platforms = st.sidebar.multiselect("Platforms", options=platform_options, default=[])
@@ -2477,6 +2749,10 @@ def apply_global_filters(
         orders["order_year"].between(year_range[0], year_range[1]) & (orders["size_mw"].fillna(0) >= mw_floor)
     ].copy()
 
+    if selected_continents:
+        o = o[o["continent"].isin(selected_continents)]
+    if selected_regions:
+        o = o[o["region"].isin(selected_regions)]
     if selected_countries:
         o = o[o["country"].isin(selected_countries)]
     if selected_services:
