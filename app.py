@@ -14,6 +14,11 @@ import streamlit as st
 
 
 APP_TITLE = "Vestas Sales Intelligence Dashboard"
+DATA_DIR = Path("data")
+DATA_CACHE_DIR = Path("data_cache")
+PARSED_DATA_FILE = DATA_CACHE_DIR / "vestas_parsed_data.pkl"
+STOCK_MONTHLY_FILE = DATA_DIR / "vestas_stock_monthly.json"
+MARKET_MONTHLY_FILE = DATA_DIR / "market_prices_monthly.json"
 
 DEFAULT_ECON_METRICS = [
     "revenue (mEUR)",
@@ -1087,13 +1092,154 @@ def find_default_workbook() -> Path | None:
     return None
 
 
+def empty_stock_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=["date", "open", "high", "low", "close", "adj_close", "volume"])
+
+
+def parse_stock_monthly_json(stock_path: Path) -> pd.DataFrame:
+    if not stock_path.exists():
+        return empty_stock_frame()
+
+    try:
+        raw = pd.read_json(stock_path)
+    except Exception:
+        return empty_stock_frame()
+
+    if raw.empty:
+        return empty_stock_frame()
+
+    rename_map: dict[str, str] = {}
+    for col in raw.columns:
+        key = str(col).strip().lower()
+        if "date" in key:
+            rename_map[col] = "date"
+        elif "adj" in key and "close" in key:
+            rename_map[col] = "adj_close"
+        elif "open" in key:
+            rename_map[col] = "open"
+        elif "high" in key:
+            rename_map[col] = "high"
+        elif "low" in key:
+            rename_map[col] = "low"
+        elif "close" in key:
+            rename_map[col] = "close"
+        elif "volume" in key:
+            rename_map[col] = "volume"
+
+    stock = raw.rename(columns=rename_map).copy()
+    required_cols = ["date", "open", "high", "low", "close", "adj_close", "volume"]
+    for col in required_cols:
+        if col not in stock.columns:
+            stock[col] = np.nan
+    stock = stock[required_cols].copy()
+
+    stock["date"] = pd.to_datetime(stock["date"], errors="coerce")
+    for col in ["open", "high", "low", "close", "adj_close", "volume"]:
+        stock[col] = pd.to_numeric(stock[col], errors="coerce")
+
+    stock = stock.dropna(subset=["date", "open", "high", "low", "close"]).copy()
+    stock = stock.sort_values("date")
+    stock["date"] = stock["date"].dt.normalize()
+    stock["volume"] = stock["volume"].fillna(0.0)
+    return stock
+
+
+def parse_market_monthly_json(market_path: Path) -> pd.DataFrame:
+    if not market_path.exists():
+        return pd.DataFrame(columns=["date", "steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"])
+
+    try:
+        raw = pd.read_json(market_path)
+    except Exception:
+        return pd.DataFrame(columns=["date", "steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"])
+
+    if raw.empty:
+        return pd.DataFrame(columns=["date", "steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"])
+
+    market = raw.copy()
+    if "date" not in market.columns:
+        for c in market.columns:
+            if "date" in str(c).lower():
+                market = market.rename(columns={c: "date"})
+                break
+    if "date" not in market.columns:
+        return pd.DataFrame(columns=["date", "steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"])
+
+    for col in ["steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"]:
+        if col not in market.columns:
+            market[col] = np.nan
+        market[col] = pd.to_numeric(market[col], errors="coerce")
+
+    market["date"] = pd.to_datetime(market["date"], errors="coerce").dt.normalize()
+    market = market.dropna(subset=["date"]).sort_values("date")
+    return market[["date", "steel_hrc_usd_per_short_ton", "copper_hg_usd_per_lb"]].copy()
+
+
 @st.cache_data(show_spinner=False)
 def load_data(cache_key: str, workbook_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    _ = cache_key
+    cache_file = PARSED_DATA_FILE
+    if cache_file.exists():
+        try:
+            payload = pd.read_pickle(cache_file)
+            if isinstance(payload, dict) and payload.get("cache_key") == cache_key:
+                return (
+                    payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+                    payload.get("orders", pd.DataFrame()),
+                    payload.get("platforms", pd.DataFrame()),
+                    payload.get("unannounced", pd.DataFrame()),
+                )
+        except Exception:
+            pass
+
     workbook = Path(workbook_path)
     economy = parse_economy_sheet(workbook)
     orders, platforms, unannounced = parse_oi_sheets(workbook)
+
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "cache_key": cache_key,
+            "workbook_path": str(workbook.resolve()),
+            "generated_utc": datetime.utcnow().isoformat(timespec="seconds"),
+            "economy": economy,
+            "orders": orders,
+            "platforms": platforms,
+            "unannounced": unannounced,
+        }
+        pd.to_pickle(payload, cache_file)
+    except Exception:
+        pass
+
     return economy, orders, platforms, unannounced
+
+
+@st.cache_data(show_spinner=False)
+def load_stock_data(cache_key: str, stock_path: str) -> pd.DataFrame:
+    _ = cache_key
+    return parse_stock_monthly_json(Path(stock_path))
+
+
+@st.cache_data(show_spinner=False)
+def load_market_data(cache_key: str, market_path: str) -> pd.DataFrame:
+    _ = cache_key
+    return parse_market_monthly_json(Path(market_path))
+
+
+def load_data_from_cache_only() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame] | None:
+    if not PARSED_DATA_FILE.exists():
+        return None
+    try:
+        payload = pd.read_pickle(PARSED_DATA_FILE)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return (
+        payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+        payload.get("orders", pd.DataFrame()),
+        payload.get("platforms", pd.DataFrame()),
+        payload.get("unannounced", pd.DataFrame()),
+    )
 
 
 def mw_fmt(value: float) -> str:
@@ -1133,6 +1279,9 @@ def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame, unannou
     avg_order_mw = orders["size_mw"].mean()
     avg_delivery_days = orders["delivery_days"].mean()
     countries = orders["country"].nunique()
+    delivery_base = orders.dropna(subset=["delivery_days"]).copy()
+    delivery_base_orders = delivery_base["order_id"].nunique()
+    delivery_base_mw = delivery_base["size_mw"].sum()
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Orders", int_fmt(total_orders))
@@ -1143,8 +1292,18 @@ def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame, unannou
         delta_color="off",
     )
     m3.metric("Platform-Mapped MW", mw_fmt(total_platform_mw))
-    m4.metric("Avg Order Size", mw_fmt(avg_order_mw))
-    m5.metric("Avg Delivery Time", days_fmt(avg_delivery_days))
+    m4.metric(
+        "Avg Order Size",
+        mw_fmt(avg_order_mw),
+        delta=f"based on {announced_mw / 1000.0:,.1f} GW announced",
+        delta_color="off",
+    )
+    m5.metric(
+        "Avg Delivery Time",
+        days_fmt(avg_delivery_days),
+        delta=f"based on {delivery_base_mw / 1000.0:,.1f} GW / {delivery_base_orders:,.0f} orders",
+        delta_color="off",
+    )
     m6.metric("Countries", int_fmt(countries))
 
 
@@ -1201,7 +1360,7 @@ def render_information_page() -> None:
     )
 
 
-def render_overall_economics(economy: pd.DataFrame) -> None:
+def render_overall_economics(economy: pd.DataFrame, stock_monthly: pd.DataFrame, market_monthly: pd.DataFrame) -> None:
     st.subheader("Overall Economics")
     if economy.empty:
         st.info("No parsable data found in `Vestas Economy`.")
@@ -1347,6 +1506,135 @@ def render_overall_economics(economy: pd.DataFrame) -> None:
             "Average MW Price [mEUR/MW]",
             "mEUR/MW",
         )
+
+    st.markdown("**Vestas Stock Price (Monthly OHLC)**")
+    if stock_monthly is None or stock_monthly.empty:
+        st.info("No local stock file found. Expected: `data/vestas_stock_monthly.json`.")
+    else:
+        stock = stock_monthly.copy()
+        stock["year"] = stock["date"].dt.year
+        stock = stock[stock["year"].between(year_range[0], year_range[1])].copy()
+        if stock.empty:
+            st.info("No stock data available for the selected economy year range.")
+        else:
+            overlay_options = [f"Economy: {m}" for m in sorted(metric_options)]
+            market_series = {}
+            steel_label = "Market: Steel price (HRC futures, USD/short ton)"
+            copper_label = "Market: Copper price (HG futures, USD/lb)"
+            if market_monthly is not None and not market_monthly.empty:
+                market_series = {
+                    steel_label: "steel_hrc_usd_per_short_ton",
+                    copper_label: "copper_hg_usd_per_lb",
+                }
+                for label, col in list(market_series.items()):
+                    if col not in market_monthly.columns or market_monthly[col].dropna().empty:
+                        market_series.pop(label, None)
+                overlay_options.extend(list(market_series.keys()))
+
+            overlay_default: list[str] = []
+            if "Economy: revenue (mEUR)" in overlay_options:
+                overlay_default.append("Economy: revenue (mEUR)")
+            if steel_label in overlay_options:
+                overlay_default.append(steel_label)
+
+            selected_overlays = st.multiselect(
+                "Overlay on right axis (Y2/Y3)",
+                options=overlay_options,
+                default=overlay_default,
+                key="stock_overlay_series",
+            )
+
+            fig_stock = go.Figure(
+                data=[
+                    go.Candlestick(
+                        x=stock["date"],
+                        open=stock["open"],
+                        high=stock["high"],
+                        low=stock["low"],
+                        close=stock["close"],
+                        name="VWS.CO",
+                    )
+                ]
+            )
+            y2_used = False
+            y3_used = False
+            for item in selected_overlays:
+                if item.startswith("Economy: "):
+                    metric_name = item.replace("Economy: ", "", 1)
+                    metric_series = econ[econ["metric"] == metric_name][["year", "value"]].copy()
+                    if metric_series.empty:
+                        continue
+                    metric_series["date"] = pd.to_datetime(metric_series["year"].astype(str) + "-12-31", errors="coerce")
+                    metric_series = metric_series.dropna(subset=["date", "value"])
+                    metric_series = metric_series[metric_series["date"].dt.year.between(year_range[0], year_range[1])]
+                    if metric_series.empty:
+                        continue
+                    fig_stock.add_trace(
+                        go.Scatter(
+                            x=metric_series["date"],
+                            y=metric_series["value"],
+                            mode="lines+markers",
+                            name=metric_name,
+                            yaxis="y2",
+                        )
+                    )
+                    y2_used = True
+                elif item in market_series:
+                    col = market_series[item]
+                    market_f = market_monthly.copy()
+                    market_f["date"] = pd.to_datetime(market_f["date"], errors="coerce")
+                    market_f[col] = pd.to_numeric(market_f[col], errors="coerce")
+                    market_f = market_f.dropna(subset=["date", col])
+                    market_f = market_f[market_f["date"].dt.year.between(year_range[0], year_range[1])]
+                    if market_f.empty:
+                        continue
+                    target_axis = "y3" if item == steel_label else "y2"
+                    fig_stock.add_trace(
+                        go.Scatter(
+                            x=market_f["date"],
+                            y=market_f[col],
+                            mode="lines",
+                            name=item.replace("Market: ", ""),
+                            yaxis=target_axis,
+                        )
+                    )
+                    if target_axis == "y3":
+                        y3_used = True
+                    else:
+                        y2_used = True
+
+            yaxis2_cfg: dict[str, Any] = {
+                "title": "Overlay metrics (Y2)",
+                "overlaying": "y",
+                "side": "right",
+                "showgrid": False,
+                "visible": y2_used,
+            }
+            if y3_used:
+                yaxis2_cfg["anchor"] = "free"
+                yaxis2_cfg["position"] = 0.9
+
+            fig_stock.update_layout(
+                template=plotly_template(),
+                title="Vestas (VWS.CO) Monthly Price - Open/High/Low/Close",
+                yaxis_title="Price",
+                xaxis_title="Date",
+                xaxis_rangeslider_visible=False,
+                height=470,
+                yaxis2=yaxis2_cfg,
+                yaxis3=dict(
+                    title="Steel price (Y3, USD/short ton)",
+                    overlaying="y",
+                    side="right",
+                    showgrid=False,
+                    visible=y3_used,
+                    anchor="free",
+                    position=0.995,
+                ),
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_stock, width="stretch")
+            st.caption("Source: Yahoo Finance monthly history for VWS.CO, HRC=F (steel), and HG=F (copper).")
 
     st.markdown("**Custom Metric Explorer**")
     default_custom = [
@@ -2276,82 +2564,43 @@ def render_country_maps(
         "orders": "Number of orders",
     }
 
-    c5, c6, c7 = st.columns(3)
-    with c5:
-        choropleth_metric = st.selectbox(
-            "Choropleth metric",
-            options=list(map_metric_labels.keys()),
-            format_func=lambda k: map_metric_labels[k],
-            key="country_map_choropleth_metric",
-        )
-    with c6:
-        bubble_size_metric = st.selectbox(
-            "Bubble size metric",
-            options=list(size_metric_labels.keys()),
-            format_func=lambda k: size_metric_labels[k],
-            key="country_map_bubble_size_metric",
-        )
-    with c7:
-        bubble_color_metric = st.selectbox(
-            "Bubble color metric",
-            options=list(color_metric_labels.keys()),
-            format_func=lambda k: color_metric_labels[k],
-            key="country_map_bubble_color_metric",
-        )
+    map_style = st.selectbox(
+        "Map style",
+        options=["Bubble map", "Choropleth map"],
+        index=0,
+        key="country_map_style",
+    )
 
-    map_geo[choropleth_metric] = pd.to_numeric(map_geo[choropleth_metric], errors="coerce")
-    map_geo[bubble_size_metric] = pd.to_numeric(map_geo[bubble_size_metric], errors="coerce")
-    map_geo[bubble_color_metric] = pd.to_numeric(map_geo[bubble_color_metric], errors="coerce")
     map_geo["orders"] = pd.to_numeric(map_geo["orders"], errors="coerce")
 
-    choropleth_data = map_geo.dropna(subset=[choropleth_metric]).copy()
-    if choropleth_metric in {"total_mw", "platform_overlay_mw", "orders"}:
-        choropleth_data = choropleth_data[choropleth_data[choropleth_metric] > 0]
+    if map_style == "Bubble map":
+        c5, c6 = st.columns(2)
+        with c5:
+            bubble_size_metric = st.selectbox(
+                "Bubble size metric",
+                options=list(size_metric_labels.keys()),
+                format_func=lambda k: size_metric_labels[k],
+                key="country_map_bubble_size_metric",
+            )
+        with c6:
+            bubble_color_metric = st.selectbox(
+                "Bubble color metric",
+                options=list(color_metric_labels.keys()),
+                format_func=lambda k: color_metric_labels[k],
+                key="country_map_bubble_color_metric",
+            )
 
-    bubble_data = map_geo.dropna(subset=[bubble_size_metric]).copy()
-    bubble_data = bubble_data[bubble_data[bubble_size_metric] > 0]
-    if bubble_data[bubble_color_metric].notna().any():
-        bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
-    else:
-        bubble_color_metric = "orders"
-        bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
+        map_geo[bubble_size_metric] = pd.to_numeric(map_geo[bubble_size_metric], errors="coerce")
+        map_geo[bubble_color_metric] = pd.to_numeric(map_geo[bubble_color_metric], errors="coerce")
 
-    m1, m2 = st.columns(2)
-    with m1:
-        if choropleth_data.empty:
-            st.info("No values available for the selected choropleth metric.")
+        bubble_data = map_geo.dropna(subset=[bubble_size_metric]).copy()
+        bubble_data = bubble_data[bubble_data[bubble_size_metric] > 0]
+        if bubble_data[bubble_color_metric].notna().any():
+            bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
         else:
-            fig_map = px.choropleth(
-                choropleth_data,
-                locations="iso3",
-                locationmode="ISO-3",
-                color=choropleth_metric,
-                hover_name="country",
-                hover_data={
-                    "total_mw": ":,.0f",
-                    "platform_overlay_mw": ":,.0f",
-                    "orders": ":,.0f",
-                    "avg_service_time": ":.2f",
-                    "avg_delivery_days": ":,.0f",
-                    "region": True,
-                    "continent": True,
-                    "dominant_platform": True,
-                    "dominant_service_scheme": True,
-                    "iso3": False,
-                },
-                template=plotly_template(),
-                color_continuous_scale="YlGnBu",
-                title=f"Zoomable Choropleth: {map_metric_labels[choropleth_metric]}",
-                height=560,
-            )
-            fig_map.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
-            fig_map.update_layout(
-                coloraxis_colorbar_title=map_metric_labels[choropleth_metric],
-                margin=dict(l=10, r=10, t=60, b=10),
-            )
-            st.plotly_chart(fig_map, width="stretch")
+            bubble_color_metric = "orders"
+            bubble_data = bubble_data.dropna(subset=[bubble_color_metric]).copy()
 
-    with m2:
         if bubble_data.empty:
             st.info("No values available for the selected bubble map metrics.")
         else:
@@ -2384,7 +2633,7 @@ def render_country_maps(
                     f"Zoomable Bubble Map: size={size_metric_labels[bubble_size_metric]}, "
                     f"color={color_metric_labels[bubble_color_metric]}"
                 ),
-                height=560,
+                height=600,
             )
             fig_bubble.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
             fig_bubble.update_layout(
@@ -2392,6 +2641,50 @@ def render_country_maps(
                 margin=dict(l=10, r=10, t=60, b=10),
             )
             st.plotly_chart(fig_bubble, width="stretch")
+    else:
+        choropleth_metric = st.selectbox(
+            "Choropleth metric",
+            options=list(map_metric_labels.keys()),
+            format_func=lambda k: map_metric_labels[k],
+            key="country_map_choropleth_metric",
+        )
+        map_geo[choropleth_metric] = pd.to_numeric(map_geo[choropleth_metric], errors="coerce")
+        choropleth_data = map_geo.dropna(subset=[choropleth_metric]).copy()
+        if choropleth_metric in {"total_mw", "platform_overlay_mw", "orders"}:
+            choropleth_data = choropleth_data[choropleth_data[choropleth_metric] > 0]
+
+        if choropleth_data.empty:
+            st.info("No values available for the selected choropleth metric.")
+        else:
+            fig_map = px.choropleth(
+                choropleth_data,
+                locations="iso3",
+                locationmode="ISO-3",
+                color=choropleth_metric,
+                hover_name="country",
+                hover_data={
+                    "total_mw": ":,.0f",
+                    "platform_overlay_mw": ":,.0f",
+                    "orders": ":,.0f",
+                    "avg_service_time": ":.2f",
+                    "avg_delivery_days": ":,.0f",
+                    "region": True,
+                    "continent": True,
+                    "dominant_platform": True,
+                    "dominant_service_scheme": True,
+                    "iso3": False,
+                },
+                template=plotly_template(),
+                color_continuous_scale="YlGnBu",
+                title=f"Zoomable Choropleth: {map_metric_labels[choropleth_metric]}",
+                height=600,
+            )
+            fig_map.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+            fig_map.update_layout(
+                coloraxis_colorbar_title=map_metric_labels[choropleth_metric],
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_map, width="stretch")
 
 
 def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
@@ -2764,7 +3057,7 @@ def apply_global_filters(
 def main() -> None:
     st.set_page_config(page_title=APP_TITLE, page_icon="W", layout="wide")
     if "dark_mode" not in st.session_state:
-        st.session_state["dark_mode"] = True
+        st.session_state["dark_mode"] = False
     st.sidebar.toggle("Dark mode", key="dark_mode")
     dark_mode = bool(st.session_state.get("dark_mode", False))
     apply_page_style(dark_mode)
@@ -2774,12 +3067,29 @@ def main() -> None:
 
     workbook = find_default_workbook()
     if workbook is None:
-        st.error("No Excel workbook found in the current directory.")
-        return
+        cached = load_data_from_cache_only()
+        if cached is None:
+            st.error("No Excel workbook found and no parsed cache available (`data_cache/vestas_parsed_data.pkl`).")
+            return
+        economy, orders, platforms, unannounced = cached
+        st.info("Using cached parsed dataset from `data_cache/vestas_parsed_data.pkl` (Excel workbook not found).")
+    else:
+        stat = workbook.stat()
+        cache_key = f"{workbook.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
+        economy, orders, platforms, unannounced = load_data(cache_key, str(workbook))
 
-    stat = workbook.stat()
-    cache_key = f"{workbook.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
-    economy, orders, platforms, unannounced = load_data(cache_key, str(workbook))
+    if STOCK_MONTHLY_FILE.exists():
+        stock_stat = STOCK_MONTHLY_FILE.stat()
+        stock_cache_key = f"{STOCK_MONTHLY_FILE.resolve()}::{stock_stat.st_mtime_ns}::{stock_stat.st_size}"
+    else:
+        stock_cache_key = "missing_stock_file"
+    stock_monthly = load_stock_data(stock_cache_key, str(STOCK_MONTHLY_FILE))
+    if MARKET_MONTHLY_FILE.exists():
+        market_stat = MARKET_MONTHLY_FILE.stat()
+        market_cache_key = f"{MARKET_MONTHLY_FILE.resolve()}::{market_stat.st_mtime_ns}::{market_stat.st_size}"
+    else:
+        market_cache_key = "missing_market_file"
+    market_monthly = load_market_data(market_cache_key, str(MARKET_MONTHLY_FILE))
 
     if orders.empty:
         st.error("No order intake records were parsed from the `OI YYYY` sheets.")
@@ -2808,7 +3118,7 @@ def main() -> None:
     )
 
     with tabs[0]:
-        render_overall_economics(economy)
+        render_overall_economics(economy, stock_monthly, market_monthly)
     with tabs[1]:
         render_yearly_overview(orders_f, platforms_f, unannounced_f)
     with tabs[2]:
