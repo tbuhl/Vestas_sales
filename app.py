@@ -3072,7 +3072,6 @@ def main() -> None:
             st.error("No Excel workbook found and no parsed cache available (`data_cache/vestas_parsed_data.pkl`).")
             return
         economy, orders, platforms, unannounced = cached
-        st.info("Using cached parsed dataset from `data_cache/vestas_parsed_data.pkl` (Excel workbook not found).")
     else:
         stat = workbook.stat()
         cache_key = f"{workbook.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
