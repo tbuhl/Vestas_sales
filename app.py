@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import html
 import math
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +13,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 
@@ -19,6 +23,62 @@ DATA_CACHE_DIR = Path("data_cache")
 PARSED_DATA_FILE = DATA_CACHE_DIR / "vestas_parsed_data.pkl"
 STOCK_MONTHLY_FILE = DATA_DIR / "vestas_stock_monthly.json"
 MARKET_MONTHLY_FILE = DATA_DIR / "market_prices_monthly.json"
+
+NEWS_FEEDS = [
+    {
+        "source": "Windpower Monthly - Vestas",
+        "url": "https://www.windpowermonthly.com/rss/vestas",
+        "focus": "industry",
+    },
+    {
+        "source": "OffshoreWIND.biz - Vestas",
+        "url": "https://www.offshorewind.biz/?s=vestas&feed=rss2",
+        "focus": "industry",
+    },
+    {
+        "source": "Google News (Reuters + Vestas)",
+        "url": "https://news.google.com/rss/search?q=site%3Areuters.com%20Vestas%20wind&hl=en-US&gl=US&ceid=US:en",
+        "focus": "financial",
+    },
+    {
+        "source": "Google News (Bloomberg + Vestas)",
+        "url": "https://news.google.com/rss/search?q=site%3Abloomberg.com%20Vestas%20wind&hl=en-US&gl=US&ceid=US:en",
+        "focus": "financial",
+    },
+    {
+        "source": "Google News (Recharge + Vestas)",
+        "url": "https://news.google.com/rss/search?q=site%3Arechargenews.com%20Vestas%20wind&hl=en-US&gl=US&ceid=US:en",
+        "focus": "industry",
+    },
+    {
+        "source": "Google News (Power Technology + Vestas)",
+        "url": "https://news.google.com/rss/search?q=site%3Apower-technology.com%20Vestas%20wind&hl=en-US&gl=US&ceid=US:en",
+        "focus": "technical",
+    },
+]
+
+VESTAS_KEYWORDS = ("vestas", "vws.co", "vwdr")
+VESTAS_NEWS_BLACKLIST = (
+    "your career at vestas",
+    "this is vestas",
+    "onshore wind turbines - vestas",
+    "offshore wind turbines - vestas",
+    "enventus platform - vestas",
+    "from 2005-2008 - vestas",
+    "stock price & latest news",
+    "/en/careers",
+    "/career",
+    "/jobs",
+    "deals of the week",
+    "wind power patents",
+    "weekly roundup",
+)
+
+VESTAS_TITLE_RE = re.compile(r"\b(?:vestas|vws\.co|vwdr)\b", re.IGNORECASE)
+PATENTSCOPE_SEARCH_URL = (
+    "https://patentscope.wipo.int/search/en/result.jsf"
+    "?query=PA%3A%22Vestas%20Wind%20Systems%22&sortOption=-DP"
+)
 
 DEFAULT_ECON_METRICS = [
     "revenue (mEUR)",
@@ -280,65 +340,129 @@ CUSTOMER_UNKNOWN_VALUES = {"?", "nan", "none", "no info", "not mentioned", "unkn
 
 def apply_page_style(dark_mode: bool) -> None:
     if dark_mode:
-        text_color = "#e9eef5"
+        text_color = "#f5f7fb"
+        muted_color = "#a6b3c3"
         bg_main = (
-            "radial-gradient(1100px 580px at 100% -10%, rgba(34, 88, 156, 0.35) 0%, rgba(34, 88, 156, 0) 55%),"
-            "radial-gradient(900px 500px at -10% 15%, rgba(14, 128, 110, 0.28) 0%, rgba(14, 128, 110, 0) 48%),"
-            "linear-gradient(180deg, #0d1118 0%, #0a1016 100%)"
+            "radial-gradient(1200px 620px at 96% -12%, rgba(250, 204, 21, 0.16) 0%, rgba(250, 204, 21, 0) 52%),"
+            "radial-gradient(900px 520px at -4% 18%, rgba(16, 185, 129, 0.18) 0%, rgba(16, 185, 129, 0) 48%),"
+            "linear-gradient(180deg, #090d16 0%, #0d1424 100%)"
         )
-        bg_sidebar = "linear-gradient(180deg, #111926 0%, #0d1520 100%)"
-        header_bg = "rgba(10, 16, 24, 0.96)"
-        header_border = "rgba(92, 140, 190, 0.25)"
-        card_bg = "rgba(19, 29, 42, 0.82)"
-        card_border = "rgba(92, 140, 190, 0.25)"
-        frame_border = "rgba(92, 140, 190, 0.2)"
-        metric_label_color = "#c8d7e8"
-        metric_value_color = "#f2f7ff"
-        metric_delta_color = "#f2f7ff"
-        tab_bg = "rgba(19, 29, 42, 0.78)"
-        tab_active_bg = "rgba(46, 102, 176, 0.48)"
-        tab_text_color = "#cedcf0"
+        bg_sidebar = "linear-gradient(180deg, rgba(11, 17, 31, 0.95) 0%, rgba(8, 12, 22, 0.98) 100%)"
+        header_bg = "rgba(9, 14, 26, 0.82)"
+        header_border = "rgba(250, 204, 21, 0.20)"
+        card_bg = "rgba(17, 24, 39, 0.62)"
+        card_border = "rgba(148, 163, 184, 0.28)"
+        card_shadow = "0 24px 56px rgba(0, 0, 0, 0.48), 0 8px 18px rgba(0, 0, 0, 0.25)"
+        card_glow = "rgba(250, 204, 21, 0.26)"
+        frame_border = "rgba(148, 163, 184, 0.25)"
+        metric_label_color = "#d5deea"
+        metric_value_color = "#ffffff"
+        metric_delta_color = "#f8fafc"
+        tab_bg = "rgba(17, 24, 39, 0.66)"
+        tab_active_bg = "linear-gradient(120deg, rgba(234, 179, 8, 0.30), rgba(16, 185, 129, 0.28))"
+        tab_hover_bg = "rgba(30, 41, 59, 0.80)"
+        tab_border = "rgba(148, 163, 184, 0.25)"
+        tab_active_border = "rgba(250, 204, 21, 0.40)"
+        tab_text_color = "#d7e0ec"
         tab_active_text_color = "#ffffff"
+        input_bg = "rgba(15, 23, 42, 0.78)"
+        input_border = "rgba(148, 163, 184, 0.30)"
+        input_focus = "rgba(250, 204, 21, 0.42)"
+        accent_start = "#facc15"
+        accent_end = "#10b981"
+        link_color = "#a7f3d0"
+        link_hover = "#fde047"
+        chart_wrap_bg = "rgba(17, 24, 39, 0.56)"
+        chart_wrap_border = "rgba(148, 163, 184, 0.25)"
     else:
-        text_color = "#102132"
+        text_color = "#0f172a"
+        muted_color = "#475569"
         bg_main = (
-            "radial-gradient(1200px 600px at 95% -5%, #dceef7 0%, rgba(220,238,247,0) 45%),"
-            "radial-gradient(1000px 500px at -10% 20%, #f8e9d8 0%, rgba(248,233,216,0) 40%),"
-            "linear-gradient(180deg, #f7fafc 0%, #ecf2f7 100%)"
+            "radial-gradient(1200px 620px at 94% -10%, rgba(250, 204, 21, 0.28) 0%, rgba(250, 204, 21, 0) 50%),"
+            "radial-gradient(1000px 540px at -8% 20%, rgba(52, 211, 153, 0.24) 0%, rgba(52, 211, 153, 0) 46%),"
+            "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)"
         )
-        bg_sidebar = "linear-gradient(180deg, #f3f7fb 0%, #e9f0f7 100%)"
-        header_bg = "rgba(247, 250, 252, 0.96)"
-        header_border = "rgba(33, 63, 92, 0.12)"
-        card_bg = "rgba(255,255,255,0.85)"
-        card_border = "rgba(33, 63, 92, 0.12)"
-        frame_border = "rgba(33, 63, 92, 0.12)"
-        metric_label_color = "#34516b"
-        metric_value_color = "#102132"
-        metric_delta_color = "#102132"
-        tab_bg = "rgba(255, 255, 255, 0.78)"
-        tab_active_bg = "rgba(215, 231, 245, 0.95)"
-        tab_text_color = "#284158"
-        tab_active_text_color = "#102132"
+        bg_sidebar = "linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(248, 250, 252, 0.94) 100%)"
+        header_bg = "rgba(255, 255, 255, 0.78)"
+        header_border = "rgba(15, 23, 42, 0.10)"
+        card_bg = "rgba(255, 255, 255, 0.66)"
+        card_border = "rgba(15, 23, 42, 0.10)"
+        card_shadow = "0 26px 52px rgba(2, 6, 23, 0.12), 0 8px 18px rgba(2, 6, 23, 0.08)"
+        card_glow = "rgba(16, 185, 129, 0.20)"
+        frame_border = "rgba(15, 23, 42, 0.11)"
+        metric_label_color = "#334155"
+        metric_value_color = "#0f172a"
+        metric_delta_color = "#0f172a"
+        tab_bg = "rgba(255, 255, 255, 0.72)"
+        tab_active_bg = "linear-gradient(120deg, rgba(254, 240, 138, 0.74), rgba(167, 243, 208, 0.72))"
+        tab_hover_bg = "rgba(255, 255, 255, 0.90)"
+        tab_border = "rgba(15, 23, 42, 0.12)"
+        tab_active_border = "rgba(16, 185, 129, 0.44)"
+        tab_text_color = "#334155"
+        tab_active_text_color = "#0f172a"
+        input_bg = "rgba(255, 255, 255, 0.80)"
+        input_border = "rgba(15, 23, 42, 0.14)"
+        input_focus = "rgba(16, 185, 129, 0.36)"
+        accent_start = "#eab308"
+        accent_end = "#10b981"
+        link_color = "#0f766e"
+        link_hover = "#a16207"
+        chart_wrap_bg = "rgba(255, 255, 255, 0.58)"
+        chart_wrap_border = "rgba(15, 23, 42, 0.11)"
 
     st.markdown(
         f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..700,0..1,-50..200');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
 html, body, .stApp {{
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Nunito Sans', sans-serif;
   color: {text_color};
 }}
 
 .stApp {{
   background: {bg_main};
+  background-attachment: fixed;
+}}
+
+.block-container {{
+  padding-top: 1.2rem;
+  padding-bottom: 2rem;
+}}
+
+h1, h2, h3, h4, h5, h6 {{
+  letter-spacing: -0.01em;
+  font-weight: 700;
+}}
+
+h1 {{
+  font-weight: 800;
+  background-image: linear-gradient(110deg, {accent_start} 0%, {accent_end} 56%, {text_color} 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}}
+
+p, span, label, li {{
+  color: {text_color};
+}}
+
+a {{
+  color: {link_color};
+  text-decoration-color: {link_color};
+}}
+
+a:hover {{
+  color: {link_hover};
+  text-decoration-color: {link_hover};
 }}
 
 section[data-testid="stSidebar"] {{
   background: {bg_sidebar};
   border-right: 1px solid {frame_border};
+  backdrop-filter: blur(9px);
 }}
 
 section[data-testid="stSidebar"] * {{
@@ -360,6 +484,7 @@ section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {{
 [data-testid="stToolbar"] {{
   background: {header_bg} !important;
   border-bottom: 1px solid {header_border} !important;
+  backdrop-filter: blur(12px);
 }}
 
 [data-testid="stDecoration"] {{
@@ -391,29 +516,46 @@ section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
 section[data-testid="stSidebar"] div[data-baseweb="input"] > div,
 section[data-testid="stSidebar"] div[data-testid="stNumberInput"] input,
 section[data-testid="stSidebar"] div[data-testid="stTextInput"] input {{
-  background: {card_bg};
-  border: 1px solid {card_border};
+  background: {input_bg};
+  border: 1px solid {input_border};
   color: {text_color};
+  border-radius: 10px;
 }}
 
-.block-container {{
-  padding-top: 1.2rem;
-  padding-bottom: 2rem;
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within,
+section[data-testid="stSidebar"] div[data-baseweb="input"] > div:focus-within,
+section[data-testid="stSidebar"] div[data-testid="stNumberInput"] input:focus,
+section[data-testid="stSidebar"] div[data-testid="stTextInput"] input:focus {{
+  border-color: {input_focus} !important;
+  box-shadow: 0 0 0 2px {input_focus} !important;
+}}
+
+div[data-testid="stAlert"],
+div[data-testid="stDataFrame"] {{
+  background: radial-gradient(65% 80% at 50% 0%, {card_glow} 0%, rgba(255,255,255,0) 100%), {card_bg};
+  border: 1px solid {card_border};
+  border-radius: 14px;
+  box-shadow: {card_shadow};
+  backdrop-filter: blur(8px);
 }}
 
 div[data-testid="stMetric"] {{
-  background: {card_bg};
+  background: radial-gradient(65% 80% at 50% 0%, {card_glow} 0%, rgba(255,255,255,0) 100%), {card_bg};
   border: 1px solid {card_border};
-  border-radius: 12px;
-  padding: 0.4rem 0.8rem;
+  border-radius: 14px;
+  padding: 0.45rem 0.82rem;
+  box-shadow: {card_shadow};
+  backdrop-filter: blur(8px);
 }}
 
 div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {{
   color: {metric_label_color} !important;
+  font-weight: 700 !important;
 }}
 
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
   color: {metric_value_color} !important;
+  letter-spacing: -0.01em;
 }}
 
 div[data-testid="stMetricDelta"] {{
@@ -422,27 +564,51 @@ div[data-testid="stMetricDelta"] {{
   line-height: 1.05 !important;
 }}
 
+div[data-testid="stPlotlyChart"] {{
+  background: radial-gradient(65% 80% at 50% 0%, {card_glow} 0%, rgba(255,255,255,0) 100%), {chart_wrap_bg};
+  border: 1px solid {chart_wrap_border};
+  border-radius: 16px;
+  padding: 0.35rem 0.45rem 0.2rem 0.45rem;
+  box-shadow: {card_shadow};
+  backdrop-filter: blur(8px);
+}}
+
 .stTabs [data-baseweb="tab-list"] {{
-  gap: 0.35rem;
+  gap: 0.4rem;
+  padding-bottom: 0.1rem;
 }}
 
 .stTabs [data-baseweb="tab"] {{
   background: {tab_bg};
-  border: 1px solid {card_border};
+  border: 1px solid {tab_border};
   color: {tab_text_color} !important;
-  border-radius: 10px 10px 0 0;
-  padding-top: 0.4rem;
-  padding-bottom: 0.45rem;
+  border-radius: 11px 11px 0 0;
+  padding-top: 0.42rem;
+  padding-bottom: 0.48rem;
+  transition: all 0.18s ease;
+}}
+
+.stTabs [data-baseweb="tab"]:hover {{
+  background: {tab_hover_bg};
+  border-color: {tab_active_border};
+  transform: translateY(-1px);
 }}
 
 .stTabs [data-baseweb="tab"][aria-selected="true"] {{
   background: {tab_active_bg} !important;
   color: {tab_active_text_color} !important;
+  border-color: {tab_active_border} !important;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.18);
 }}
 
 div[data-testid="stVerticalBlock"] div[data-testid="stDataFrame"] {{
   border: 1px solid {frame_border};
-  border-radius: 10px;
+  border-radius: 14px;
+}}
+
+[data-testid="stCaptionContainer"] p,
+[data-testid="stCaptionContainer"] span {{
+  color: {muted_color} !important;
 }}
 
 .sidebar-footer {{
@@ -458,9 +624,11 @@ div[data-testid="stVerticalBlock"] div[data-testid="stDataFrame"] {{
   margin-left: 0.15rem;
   margin-right: 0.15rem;
   margin-bottom: 0.2rem;
-  background: {card_bg};
+  background: radial-gradient(65% 80% at 50% 0%, {card_glow} 0%, rgba(255,255,255,0) 100%), {card_bg};
   border: 1px solid {card_border};
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: {card_shadow};
+  backdrop-filter: blur(8px);
 }}
 </style>
         """,
@@ -821,6 +989,19 @@ def extract_order_block(df: pd.DataFrame) -> pd.DataFrame:
     return block
 
 
+def parse_oi_sheet_year(sheet_name: Any) -> int | None:
+    text = clean_text(sheet_name)
+    if text is None:
+        return None
+    m = re.fullmatch(r"OI[\s_-]*(\d{4})", text, flags=re.IGNORECASE)
+    if m is None:
+        return None
+    year = int(m.group(1))
+    if 1900 <= year <= 2100:
+        return year
+    return None
+
+
 def parse_economy_sheet(workbook: Path) -> pd.DataFrame:
     economy = pd.read_excel(workbook, sheet_name="Vestas Economy")
     if economy.empty:
@@ -883,17 +1064,18 @@ def parse_economy_sheet(workbook: Path) -> pd.DataFrame:
 
 def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     xl = pd.ExcelFile(workbook)
-    oi_sheets = sorted(
-        [s for s in xl.sheet_names if re.fullmatch(r"OI\s\d{4}", s)],
-        key=lambda s: int(s.split()[1]),
-    )
+    oi_sheets = [
+        (s, parse_oi_sheet_year(s))
+        for s in xl.sheet_names
+    ]
+    oi_sheets = [(s, y) for s, y in oi_sheets if y is not None]
+    oi_sheets = sorted(oi_sheets, key=lambda pair: pair[1])
 
     order_rows: list[dict[str, Any]] = []
     platform_rows: list[dict[str, Any]] = []
     unannounced_rows: list[dict[str, Any]] = []
 
-    for sheet in oi_sheets:
-        year = int(sheet.split()[1])
+    for sheet, year in oi_sheets:
         raw = pd.read_excel(workbook, sheet_name=sheet, dtype=object)
         raw.columns = [str(c).strip() for c in raw.columns]
         unannounced_rows.extend(extract_unannounced_quarters(raw, sheet, year))
@@ -1242,6 +1424,448 @@ def load_data_from_cache_only() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFram
     )
 
 
+def parse_news_datetime(value: Any) -> pd.Timestamp | pd.NaT:
+    text = clean_text(value)
+    if text is None:
+        return pd.NaT
+    try:
+        dt = parsedate_to_datetime(text)
+        if dt is not None:
+            return pd.Timestamp(dt).tz_convert("UTC").tz_localize(None) if dt.tzinfo else pd.Timestamp(dt)
+    except Exception:
+        pass
+    ts = pd.to_datetime(text, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return pd.NaT
+    return ts.tz_convert("UTC").tz_localize(None)
+
+
+def normalize_news_title(value: Any) -> str | None:
+    text = clean_text(value)
+    if text is None:
+        return None
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
+
+
+def normalize_news_summary(value: Any) -> str | None:
+    text = clean_text(value)
+    if text is None:
+        return None
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
+
+
+def short_summary(value: Any, max_chars: int = 320) -> str | None:
+    text = normalize_news_summary(value)
+    if text is None:
+        return None
+    if len(text) <= max_chars:
+        return text
+    clipped = text[:max_chars].rsplit(" ", 1)[0].strip()
+    if not clipped:
+        clipped = text[:max_chars].strip()
+    return f"{clipped}..."
+
+
+def is_vestas_relevant(
+    title: str | None,
+    summary: str | None,
+    link: str | None,
+    source_name: str | None = None,
+) -> bool:
+    source_txt = (source_name or "").lower()
+    full = " ".join([title or "", summary or "", link or ""]).lower()
+
+    if any(bad in full for bad in VESTAS_NEWS_BLACKLIST):
+        return False
+
+    # Official Vestas channels are already company-specific.
+    if source_txt.startswith("vestas (official"):
+        return True
+
+    title_txt = title or ""
+    if not VESTAS_TITLE_RE.search(title_txt):
+        return False
+
+    # Filter broad roundup headlines where Vestas is one of many names.
+    title_low = title_txt.lower()
+    if title_low.count("|") >= 2 and not title_low.startswith("vestas"):
+        return False
+
+    return any(k in full for k in VESTAS_KEYWORDS)
+
+
+def vestas_news_focus(news_type: Any) -> str:
+    text = (clean_text(news_type) or "").lower()
+    if "announcement" in text or "investor" in text:
+        return "financial"
+    if "press" in text:
+        return "company"
+    return "company"
+
+
+def parse_vestas_company_news_archive() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    url = "https://www.vestas.com/en/media/company-news/_jcr_content/root/container/container/newsarchive.newsarchive.json"
+    try:
+        resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception:
+        return rows
+
+    news_items = payload.get("news")
+    if not isinstance(news_items, list) or not news_items:
+        return rows
+
+    for item in news_items:
+        title = normalize_news_title(item.get("title"))
+        path = clean_text(item.get("path"))
+        if title is None or path is None:
+            continue
+        link = path if path.startswith("http") else f"https://www.vestas.com{path}"
+        summary = normalize_news_summary(item.get("type"))
+        published = parse_news_datetime(item.get("publishDate"))
+        key = (title.strip().lower(), link.strip().lower())
+        if key in seen:
+            continue
+        if not is_vestas_relevant(title, summary, link, source_name="Vestas (Official News)"):
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "source": "Vestas (Official News)",
+                "focus": vestas_news_focus(item.get("type")),
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published": published,
+            }
+        )
+    return rows
+
+
+def parse_rss_feed(feed_url: str, source_name: str, focus: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        resp = requests.get(feed_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception:
+        return rows
+
+    items = root.findall(".//item")
+    atom_entries = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+
+    for node in items:
+        title = normalize_news_title(node.findtext("title"))
+        link = clean_text(node.findtext("link"))
+        summary = normalize_news_summary(node.findtext("description"))
+        pub_raw = (
+            node.findtext("pubDate")
+            or node.findtext("{http://purl.org/dc/elements/1.1/}date")
+            or node.findtext("date")
+        )
+        published = parse_news_datetime(pub_raw)
+        if title is None or link is None:
+            continue
+        source = source_name
+        if source_name.startswith("Google News") and " - " in title:
+            t_main, t_src = title.rsplit(" - ", 1)
+            t_main = normalize_news_title(t_main)
+            t_src = clean_text(t_src)
+            if t_main is not None:
+                title = t_main
+            if t_src is not None:
+                source = t_src
+        if not is_vestas_relevant(title, summary, link, source_name=source):
+            continue
+        rows.append(
+            {
+                "source": source,
+                "focus": focus,
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published": published,
+            }
+        )
+
+    for node in atom_entries:
+        title = normalize_news_title(node.findtext("{http://www.w3.org/2005/Atom}title"))
+        link = None
+        for link_node in node.findall("{http://www.w3.org/2005/Atom}link"):
+            href = clean_text(link_node.attrib.get("href"))
+            rel = clean_text(link_node.attrib.get("rel"))
+            if href is None:
+                continue
+            if rel in {None, "alternate"}:
+                link = href
+                break
+            if link is None:
+                link = href
+
+        pub_raw = (
+            node.findtext("{http://www.w3.org/2005/Atom}updated")
+            or node.findtext("{http://www.w3.org/2005/Atom}published")
+        )
+        summary = normalize_news_summary(
+            node.findtext("{http://www.w3.org/2005/Atom}summary")
+            or node.findtext("{http://www.w3.org/2005/Atom}content")
+        )
+        published = parse_news_datetime(pub_raw)
+        if title is None or link is None:
+            continue
+        source = source_name
+        if source_name.startswith("Google News") and " - " in title:
+            t_main, t_src = title.rsplit(" - ", 1)
+            t_main = normalize_news_title(t_main)
+            t_src = clean_text(t_src)
+            if t_main is not None:
+                title = t_main
+            if t_src is not None:
+                source = t_src
+        if not is_vestas_relevant(title, summary, link, source_name=source):
+            continue
+        rows.append(
+            {
+                "source": source,
+                "focus": focus,
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published": published,
+            }
+        )
+    return rows
+
+
+def parse_vestas_orders_page() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    url = "https://www.vestas.com/en/investor/announcements/wind-turbines-orders"
+    try:
+        resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        page = resp.text
+    except Exception:
+        return rows
+
+    pattern = re.compile(
+        r"<tr[^>]*>\s*<td[^>]*>\s*(\d{2}-\d{2}-\d{2})\s*</td>\s*"
+        r"<td[^>]*>\s*<a[^>]*href=\"([^\"]+)\"[^>]*>\s*([^<]+?)\s*</a>",
+        flags=re.IGNORECASE,
+    )
+    for d_str, link, title in pattern.findall(page):
+        title_n = normalize_news_title(title)
+        link_n = clean_text(link)
+        published = pd.to_datetime(d_str, format="%d-%m-%y", errors="coerce")
+        if title_n is None or link_n is None:
+            continue
+        if not is_vestas_relevant(title_n, None, link_n, source_name="Vestas (Official Orders)"):
+            continue
+        rows.append(
+            {
+                "source": "Vestas (Official Orders)",
+                "focus": "company",
+                "title": title_n,
+                "link": link_n,
+                "summary": None,
+                "published": published,
+            }
+        )
+    return rows
+
+
+@st.cache_data(show_spinner=False, ttl=1800)
+def load_latest_news() -> pd.DataFrame:
+    rows: list[dict[str, Any]] = parse_vestas_company_news_archive()
+    rows.extend(parse_vestas_orders_page())
+    for feed in NEWS_FEEDS:
+        rows.extend(parse_rss_feed(feed["url"], feed["source"], feed["focus"]))
+
+    if not rows:
+        return pd.DataFrame(columns=["source", "focus", "title", "link", "summary", "published"])
+
+    news = pd.DataFrame(rows)
+    news = news[
+        news.apply(
+            lambda r: is_vestas_relevant(
+                clean_text(r.get("title")),
+                clean_text(r.get("summary")),
+                clean_text(r.get("link")),
+                clean_text(r.get("source")),
+            ),
+            axis=1,
+        )
+    ].copy()
+    if news.empty:
+        return pd.DataFrame(columns=["source", "focus", "title", "link", "summary", "published"])
+    news["published"] = pd.to_datetime(news["published"], errors="coerce")
+    news["title_key"] = news["title"].str.strip().str.lower()
+    news["link_key"] = news["link"].str.strip().str.lower()
+    news = news.sort_values(["published", "title"], ascending=[False, True])
+    news = news.drop_duplicates(subset=["link_key"], keep="first")
+    news = news.drop_duplicates(subset=["title_key"], keep="first")
+    news = news.drop(columns=["title_key", "link_key"])
+
+    max_per_source = 8
+    selected_idx: list[int] = []
+    source_counts: dict[str, int] = {}
+    for idx, row in news.iterrows():
+        src = str(row.get("source", "Unknown"))
+        count = source_counts.get(src, 0)
+        if count >= max_per_source:
+            continue
+        selected_idx.append(idx)
+        source_counts[src] = count + 1
+        if len(selected_idx) >= 20:
+            break
+
+    if len(selected_idx) < 20:
+        for idx in news.index:
+            if idx in selected_idx:
+                continue
+            selected_idx.append(idx)
+            if len(selected_idx) >= 20:
+                break
+
+    return news.loc[selected_idx].copy()
+
+
+@st.cache_data(show_spinner=False, ttl=43_200)
+def load_latest_patents() -> pd.DataFrame:
+    columns = [
+        "title",
+        "link",
+        "publication_number",
+        "publication_date",
+        "filing_date",
+        "priority_date",
+        "inventor",
+        "assignee",
+        "summary",
+    ]
+    try:
+        resp = requests.get(PATENTSCOPE_SEARCH_URL, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        page = resp.text
+    except Exception:
+        return pd.DataFrame(columns=columns)
+
+    def html_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = re.sub(r"<[^>]+>", " ", value)
+        cleaned = html.unescape(cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned or None
+
+    rows: list[dict[str, Any]] = []
+    for row_html in re.findall(r"<tr data-ri=\"\d+\".*?</tr>", page, flags=re.IGNORECASE | re.DOTALL):
+        pub_no_match = re.search(
+            r"ps-patent-result--title--patent-number\">(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+        )
+        title_match = re.search(
+            r"ps-patent-result--title--title[^>]*>(.*?)</span>\s*</span>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        pub_date_match = re.search(
+            r"resultListTableColumnPubDate\"[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+        )
+        link_match = re.search(r"<a href=\"([^\"]*detail\.jsf[^\"]+)\"", row_html, flags=re.IGNORECASE | re.DOTALL)
+        applicant_match = re.search(
+            r"ps-patent-result--applicant[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+        )
+        inventor_match = re.search(
+            r"ps-patent-result--inventor[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+        )
+        abstract_match = re.search(
+            r"ps-patent-result--abstract[^>]*>(.*?)</div>", row_html, flags=re.IGNORECASE | re.DOTALL
+        )
+
+        publication_number = html_text(pub_no_match.group(1)) if pub_no_match else None
+        title = normalize_news_title(html_text(title_match.group(1)) if title_match else None)
+        applicant = html_text(applicant_match.group(1)) if applicant_match else None
+        inventor = html_text(inventor_match.group(1)) if inventor_match else None
+        summary = normalize_news_summary(html_text(abstract_match.group(1)) if abstract_match else None)
+        pub_date_raw = html_text(pub_date_match.group(1)) if pub_date_match else None
+        publication_date = pd.to_datetime(pub_date_raw, format="%d.%m.%Y", errors="coerce")
+        if pd.isna(publication_date):
+            publication_date = pd.to_datetime(pub_date_raw, errors="coerce")
+
+        if title is None or publication_number is None:
+            continue
+        if applicant is not None and "vestas" not in applicant.lower():
+            continue
+
+        link = None
+        if link_match:
+            href = html.unescape(link_match.group(1))
+            href = re.sub(r";jsessionid=[^?]+", "", href)
+            link = href if href.startswith("http") else f"https://patentscope.wipo.int/search/en/{href.lstrip('/')}"
+
+        rows.append(
+            {
+                "title": title,
+                "link": link,
+                "publication_number": publication_number,
+                "publication_date": publication_date,
+                "filing_date": pd.NaT,
+                "priority_date": pd.NaT,
+                "inventor": inventor,
+                "assignee": applicant,
+                "summary": summary,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    patents = pd.DataFrame(rows)
+    patents = patents.drop_duplicates(subset=["publication_number", "title"], keep="first")
+    patents = patents.sort_values(["publication_date", "title"], ascending=[False, True]).head(10)
+    return patents
+
+
+def latest_data_handled_text(
+    economy: pd.DataFrame,
+    orders: pd.DataFrame,
+    unannounced: pd.DataFrame,
+    stock_monthly: pd.DataFrame,
+    market_monthly: pd.DataFrame,
+) -> str:
+    economy_max_year = int(economy["year"].max()) if economy is not None and not economy.empty else None
+    orders_max_date = pd.to_datetime(orders["order_date"], errors="coerce").max() if orders is not None and not orders.empty else pd.NaT
+    orders_max_year = int(orders["sheet_year"].max()) if orders is not None and not orders.empty else None
+    stock_max = pd.to_datetime(stock_monthly["date"], errors="coerce").max() if stock_monthly is not None and not stock_monthly.empty else pd.NaT
+    market_max = pd.to_datetime(market_monthly["date"], errors="coerce").max() if market_monthly is not None and not market_monthly.empty else pd.NaT
+    unann_max_year = int(unannounced["sheet_year"].max()) if unannounced is not None and not unannounced.empty else None
+
+    orders_txt = "-"
+    if pd.notna(orders_max_date):
+        orders_txt = orders_max_date.strftime("%Y-%m-%d")
+    elif orders_max_year is not None:
+        orders_txt = str(orders_max_year)
+
+    stock_txt = stock_max.strftime("%Y-%m-%d") if pd.notna(stock_max) else "-"
+    market_txt = market_max.strftime("%Y-%m-%d") if pd.notna(market_max) else "-"
+    econ_txt = str(economy_max_year) if economy_max_year is not None else "-"
+    unann_txt = str(unann_max_year) if unann_max_year is not None else "-"
+
+    return (
+        f"Latest handled data -> Economy: {econ_txt}; Orders: {orders_txt}; "
+        f"Unannounced: {unann_txt}; Stock: {stock_txt}; Steel/Copper: {market_txt}. "
+        "Not a live feed; updates occur when source files/feeds are refreshed."
+    )
+
+
 def mw_fmt(value: float) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return "-"
@@ -1358,6 +1982,81 @@ def render_information_page() -> None:
     st.write(
         "He combines deep technical expertise in wind turbine design and optimization with international people leadership and strategy execution."
     )
+
+
+def render_latest_news() -> None:
+    st.subheader("Latest News")
+    st.caption("Showing the 20 latest items directly related to Vestas.")
+    st.caption("Sources include official Vestas news plus selected financial and wind-industry feeds.")
+    st.caption("Use links to open the original source articles.")
+
+    news = load_latest_news()
+    if news.empty:
+        st.info("No news items could be loaded right now. Try again later.")
+        return
+
+    news = news.copy()
+    news["published"] = pd.to_datetime(news["published"], errors="coerce")
+    news["published_label"] = news["published"].dt.strftime("%Y-%m-%d %H:%M UTC")
+    news["published_label"] = news["published_label"].fillna("Unknown date")
+
+    for idx, row in enumerate(news.itertuples(index=False), start=1):
+        title = clean_text(row.title) or "Untitled"
+        link = clean_text(row.link) or ""
+        source = clean_text(row.source) or "Unknown source"
+        focus = clean_text(row.focus) or "news"
+        when = clean_text(row.published_label) or "Unknown date"
+        if link:
+            st.markdown(f"{idx}. [{title}]({link})")
+        else:
+            st.write(f"{idx}. {title}")
+        summary = short_summary(row.summary, max_chars=360)
+        if summary is None or len(summary) < 80:
+            summary = (
+                f"This is a Vestas-related {focus} update from {source}. "
+                "The source feed did not provide a detailed excerpt, so open the original link for full context."
+            )
+        st.write(summary)
+        st.caption(f"{source} | {focus} | {when}")
+
+
+def render_latest_patents() -> None:
+    st.subheader("Latest Patents")
+    st.caption("Showing 10 most recent Vestas patent publications from WIPO PATENTSCOPE.")
+    st.caption("Inventor names are listed from filings; employment is inferred from Vestas applicant records.")
+
+    patents = load_latest_patents()
+    if patents.empty:
+        st.info("No patent records could be loaded right now. Try again later.")
+        return
+
+    view = patents.copy()
+    view["publication_label"] = pd.to_datetime(view["publication_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    view["filing_label"] = pd.to_datetime(view["filing_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    view["priority_label"] = pd.to_datetime(view["priority_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    view["publication_label"] = view["publication_label"].fillna("-")
+    view["filing_label"] = view["filing_label"].fillna("-")
+    view["priority_label"] = view["priority_label"].fillna("-")
+
+    for idx, row in enumerate(view.itertuples(index=False), start=1):
+        title = clean_text(row.title) or "Untitled patent record"
+        link = clean_text(row.link) or ""
+        publication_number = clean_text(row.publication_number) or "Unknown publication number"
+        inventor = clean_text(row.inventor) or "Unknown inventor"
+        assignee = clean_text(row.assignee) or "Unknown assignee"
+        summary = short_summary(row.summary, max_chars=360)
+        if summary is None:
+            summary = "No abstract snippet available in the source response."
+
+        if link:
+            st.markdown(f"{idx}. [{title}]({link})")
+        else:
+            st.write(f"{idx}. {title}")
+        st.write(summary)
+        st.caption(
+            f"{publication_number} | Published: {row.publication_label} | Filed: {row.filing_label} | Priority: {row.priority_label}"
+        )
+        st.caption(f"Inventor(s): {inventor} | Assignee: {assignee}")
 
 
 def render_overall_economics(economy: pd.DataFrame, stock_monthly: pd.DataFrame, market_monthly: pd.DataFrame) -> None:
@@ -3089,6 +3788,7 @@ def main() -> None:
     else:
         market_cache_key = "missing_market_file"
     market_monthly = load_market_data(market_cache_key, str(MARKET_MONTHLY_FILE))
+    st.caption(latest_data_handled_text(economy, orders, unannounced, stock_monthly, market_monthly))
 
     if orders.empty:
         st.error("No order intake records were parsed from the `OI YYYY` sheets.")
@@ -3112,6 +3812,8 @@ def main() -> None:
             "Country Analytics",
             "Delivery and Capacity",
             "Correlations",
+            "Latest News",
+            "Latest Patents",
             "Information",
         ]
     )
@@ -3133,6 +3835,10 @@ def main() -> None:
     with tabs[7]:
         render_correlations(orders_f)
     with tabs[8]:
+        render_latest_news()
+    with tabs[9]:
+        render_latest_patents()
+    with tabs[10]:
         render_information_page()
 
 
