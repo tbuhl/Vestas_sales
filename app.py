@@ -1002,8 +1002,51 @@ def parse_oi_sheet_year(sheet_name: Any) -> int | None:
     return None
 
 
+def normalize_sheet_key(value: Any) -> str:
+    text = clean_text(value)
+    if text is None:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def resolve_sheet_name(sheet_names: list[str], target_name: str) -> str | None:
+    target_clean = clean_text(target_name)
+    if target_clean is None:
+        return None
+
+    for name in sheet_names:
+        if clean_text(name) == target_clean:
+            return str(name)
+
+    target_casefold = target_clean.casefold()
+    for name in sheet_names:
+        name_clean = clean_text(name)
+        if name_clean is not None and name_clean.casefold() == target_casefold:
+            return str(name)
+
+    target_key = normalize_sheet_key(target_clean)
+    for name in sheet_names:
+        if normalize_sheet_key(name) == target_key:
+            return str(name)
+
+    return None
+
+
 def parse_economy_sheet(workbook: Path) -> pd.DataFrame:
-    economy = pd.read_excel(workbook, sheet_name="Vestas Economy")
+    try:
+        sheet_names = pd.ExcelFile(workbook).sheet_names
+    except Exception as exc:
+        raise ValueError(f"Could not open workbook '{workbook.name}': {exc}") from exc
+
+    economy_sheet = resolve_sheet_name(sheet_names, "Vestas Economy")
+    if economy_sheet is None:
+        available = ", ".join(sheet_names[:12]) if sheet_names else "(none)"
+        raise ValueError(
+            f"Workbook '{workbook.name}' does not contain a 'Vestas Economy' sheet. "
+            f"Available sheets: {available}"
+        )
+
+    economy = pd.read_excel(workbook, sheet_name=economy_sheet)
     if economy.empty:
         return pd.DataFrame(columns=["metric", "year", "value"])
     # Keep the primary economics block requested by user (rows 0..40)
@@ -1265,12 +1308,65 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
 
 
 def find_default_workbook() -> Path | None:
+    app_dir = Path(__file__).resolve().parent
+    parent_dir = app_dir.parent
+    search_roots = [Path("."), app_dir, parent_dir]
+    preferred_names = [
+        "Vestas_economical_data_start_2026.xlsx",
+        "Vestas_data_new.xlsx",
+        "vestas_data_new.xlsx",
+    ]
+
+    for root in search_roots:
+        for name in preferred_names:
+            workbook = root / name
+            if not workbook.exists() or workbook.name.startswith("~$"):
+                continue
+            try:
+                sheet_names = pd.ExcelFile(workbook).sheet_names
+            except Exception:
+                continue
+            if resolve_sheet_name(sheet_names, "Vestas Economy") is not None:
+                return workbook
+
     patterns = ("*.xlsx", "*.xlsm", "*.xls")
-    for pattern in patterns:
-        files = sorted(Path(".").glob(pattern))
-        files = [f for f in files if not f.name.startswith("~$")]
-        if files:
-            return files[0]
+    files: list[Path] = []
+    seen: set[str] = set()
+    for root in search_roots:
+        for pattern in patterns:
+            for file_path in sorted(root.glob(pattern)):
+                if file_path.name.startswith("~$"):
+                    continue
+                key = str(file_path.resolve()).lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                files.append(file_path)
+    if not files:
+        return None
+
+    def file_priority(path: Path) -> tuple[int, float, str]:
+        name = path.name.lower()
+        if "vestas" in name:
+            rank = 0
+        elif any(token in name for token in ("nordex", "suzlon", "sgre", "siemens")):
+            rank = 2
+        else:
+            rank = 1
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = 0.0
+        return (rank, -mtime, name)
+
+    for workbook in sorted(files, key=file_priority):
+        try:
+            sheet_names = pd.ExcelFile(workbook).sheet_names
+        except Exception:
+            continue
+        if resolve_sheet_name(sheet_names, "Vestas Economy") is not None:
+            return workbook
+
     return None
 
 
@@ -2822,6 +2918,29 @@ def render_across_years(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
                 fig_reg.update_layout(margin=dict(l=10, r=10, t=60, b=10))
                 st.plotly_chart(fig_reg, width="stretch")
 
+        geo_tree = (
+            orders.assign(
+                continent=orders["continent"].fillna("Unknown"),
+                region=orders["region"].fillna("Unknown"),
+                country=orders["country"].fillna("Unknown"),
+            )
+            .groupby(["continent", "region", "country"], as_index=False)["size_mw"]
+            .sum()
+            .sort_values("size_mw", ascending=False)
+        )
+        if not geo_tree.empty:
+            fig_geo_tree = px.sunburst(
+                geo_tree,
+                path=["continent", "region", "country"],
+                values="size_mw",
+                color="continent",
+                template=plotly_template(),
+                title="Country/Region/Continent Mix (Ordered MW)",
+                height=600,
+            )
+            fig_geo_tree.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_geo_tree, width="stretch")
+
         table = (
             orders.groupby(["country", "region", "continent"], as_index=False)
             .agg(total_mw=("size_mw", "sum"), orders=("order_id", "nunique"), avg_order_mw=("size_mw", "mean"))
@@ -2851,6 +2970,54 @@ def render_across_years(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
         )
         fig.update_layout(margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig, width="stretch")
+
+        d1, d2 = st.columns(2)
+        with d1:
+            platform_share = (
+                p_base.groupby("platform", as_index=False)["slot_mw"]
+                .sum()
+                .sort_values("slot_mw", ascending=False)
+            )
+            if not platform_share.empty:
+                top_share = platform_share.head(10).copy()
+                other_mw = float(platform_share["slot_mw"].sum() - top_share["slot_mw"].sum())
+                if other_mw > 0:
+                    top_share = pd.concat(
+                        [top_share, pd.DataFrame([{"platform": "Other", "slot_mw": other_mw}])],
+                        ignore_index=True,
+                    )
+                fig_pie_platform = px.pie(
+                    top_share,
+                    names="platform",
+                    values="slot_mw",
+                    hole=0.52,
+                    template=plotly_template(),
+                    title="Platform Share (Ordered MW)",
+                    height=430,
+                )
+                fig_pie_platform.update_traces(textposition="inside", textinfo="percent+label")
+                fig_pie_platform.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_pie_platform, width="stretch")
+
+        with d2:
+            region_share = (
+                p_base.groupby("region", as_index=False)["slot_mw"]
+                .sum()
+                .sort_values("slot_mw", ascending=False)
+            )
+            if not region_share.empty:
+                fig_pie_region = px.pie(
+                    region_share,
+                    names="region",
+                    values="slot_mw",
+                    hole=0.52,
+                    template=plotly_template(),
+                    title="Region Share Across Platforms (MW)",
+                    height=430,
+                )
+                fig_pie_region.update_traces(textposition="inside", textinfo="percent+label")
+                fig_pie_region.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_pie_region, width="stretch")
 
         table = (
             p_base.groupby("platform", as_index=False)
@@ -3535,6 +3702,77 @@ def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
             fig6.update_layout(margin=dict(l=10, r=10, t=60, b=10))
             st.plotly_chart(fig6, width="stretch")
 
+    geo_tree = (
+        o.assign(
+            continent=o["continent"].fillna("Unknown"),
+            region=o["region"].fillna("Unknown"),
+            country=o["country"].fillna("Unknown"),
+        )
+        .groupby(["continent", "region", "country"], as_index=False)["size_mw"]
+        .sum()
+        .sort_values("size_mw", ascending=False)
+    )
+    if not geo_tree.empty:
+        fig_tree = px.sunburst(
+            geo_tree,
+            path=["continent", "region", "country"],
+            values="size_mw",
+            color="continent",
+            template=plotly_template(),
+            title="Across Countries: Continent -> Region -> Country (Ordered MW)",
+            height=640,
+        )
+        fig_tree.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig_tree, width="stretch")
+
+    c7, c8 = st.columns(2)
+    with c7:
+        continent_share = (
+            o.groupby("continent", as_index=False)["size_mw"]
+            .sum()
+            .sort_values("size_mw", ascending=False)
+        )
+        if not continent_share.empty:
+            fig7 = px.pie(
+                continent_share,
+                names="continent",
+                values="size_mw",
+                hole=0.52,
+                template=plotly_template(),
+                title="Across Countries: Continent Share (MW)",
+                height=430,
+            )
+            fig7.update_traces(textposition="inside", textinfo="percent+label")
+            fig7.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig7, width="stretch")
+
+    with c8:
+        country_share = (
+            o.groupby("country", as_index=False)["size_mw"]
+            .sum()
+            .sort_values("size_mw", ascending=False)
+        )
+        if not country_share.empty:
+            top_country_share = country_share.head(12).copy()
+            other_mw = float(country_share["size_mw"].sum() - top_country_share["size_mw"].sum())
+            if other_mw > 0:
+                top_country_share = pd.concat(
+                    [top_country_share, pd.DataFrame([{"country": "Other", "size_mw": other_mw}])],
+                    ignore_index=True,
+                )
+            fig8 = px.pie(
+                top_country_share,
+                names="country",
+                values="size_mw",
+                hole=0.52,
+                template=plotly_template(),
+                title="Across Countries: Top Country Share (MW)",
+                height=430,
+            )
+            fig8.update_traces(textposition="inside", textinfo="percent+label")
+            fig8.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig8, width="stretch")
+
 
 def render_delivery_capacity(orders: pd.DataFrame) -> None:
     st.subheader("Installed Capacity and Delivery")
@@ -3766,15 +4004,37 @@ def main() -> None:
 
     workbook = find_default_workbook()
     if workbook is None:
+        excel_files = [
+            f.name
+            for pattern in ("*.xlsx", "*.xlsm", "*.xls")
+            for f in Path(".").glob(pattern)
+            if not f.name.startswith("~$")
+        ]
+        if excel_files:
+            st.warning(
+                "No workbook with a 'Vestas Economy' sheet was found in this folder. "
+                f"Excel files detected: {', '.join(sorted(excel_files))}"
+            )
         cached = load_data_from_cache_only()
         if cached is None:
-            st.error("No Excel workbook found and no parsed cache available (`data_cache/vestas_parsed_data.pkl`).")
+            st.error(
+                "No valid Vestas workbook found and no parsed cache available "
+                "(`data_cache/vestas_parsed_data.pkl`)."
+            )
             return
         economy, orders, platforms, unannounced = cached
     else:
         stat = workbook.stat()
         cache_key = f"{workbook.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
-        economy, orders, platforms, unannounced = load_data(cache_key, str(workbook))
+        try:
+            economy, orders, platforms, unannounced = load_data(cache_key, str(workbook))
+        except ValueError as exc:
+            cached = load_data_from_cache_only()
+            if cached is None:
+                st.error(str(exc))
+                return
+            st.warning(f"{exc}. Falling back to cached parsed dataset.")
+            economy, orders, platforms, unannounced = cached
 
     if STOCK_MONTHLY_FILE.exists():
         stock_stat = STOCK_MONTHLY_FILE.stat()
