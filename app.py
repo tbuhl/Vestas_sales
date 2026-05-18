@@ -2249,9 +2249,20 @@ def render_overall_economics(economy: pd.DataFrame, stock_monthly: pd.DataFrame,
         st.info("No parsable data found in `Vestas Economy`.")
         return
 
-    years = sorted(economy["year"].unique().tolist())
-    y_min, y_max = int(min(years)), int(max(years))
-    year_range = st.slider("Economy year range", y_min, y_max, (max(y_min, 2007), y_max))
+    years = pd.to_numeric(economy["year"], errors="coerce").dropna().astype(int).tolist()
+    y_min = int(min(years))
+    max_year_candidates = [int(max(years))]
+    for date_frame in (stock_monthly, market_monthly):
+        if date_frame is not None and not date_frame.empty and "date" in date_frame.columns:
+            date_years = pd.to_datetime(date_frame["date"], errors="coerce").dt.year.dropna()
+            if not date_years.empty:
+                max_year_candidates.append(int(date_years.max()))
+    y_max = max(max_year_candidates)
+    if y_min == y_max:
+        year_range = (y_min, y_max)
+        st.caption(f"Economy year range: {y_min}")
+    else:
+        year_range = st.slider("Economy year range", y_min, y_max, (max(y_min, 2007), y_max))
     econ = economy[economy["year"].between(year_range[0], year_range[1])].copy()
     if econ.empty:
         st.warning("No economic values available for the selected range.")
