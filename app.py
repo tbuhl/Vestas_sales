@@ -3995,7 +3995,9 @@ def sankey_axis_positions(count: int) -> list[float]:
         return [0.5]
     if count == 2:
         return [0.28, 0.72]
-    top, bottom = 0.02, 0.98
+    # Keep the last node away from the lower edge; Plotly may otherwise
+    # nudge large Sankey nodes and break explicit chronological ordering.
+    top, bottom = 0.02, 0.82
     return [top + (bottom - top) * i / (count - 1) for i in range(count)]
 
 
@@ -4006,6 +4008,7 @@ def build_sankey_figure(
     title: str,
     stage_colors: dict[str, str],
     stage_orders: dict[str, list[str]] | None = None,
+    stage_y_positions: dict[str, list[float]] | None = None,
 ) -> go.Figure | None:
     if frame.empty or value_col not in frame.columns:
         return None
@@ -4018,6 +4021,7 @@ def build_sankey_figure(
         return None
 
     stage_orders = stage_orders or {}
+    stage_y_positions = stage_y_positions or {}
     node_labels: list[str] = []
     node_colors: list[str] = []
     node_x: list[float] = []
@@ -4040,7 +4044,9 @@ def build_sankey_figure(
             totals = totals.sort_values(["value", "label"], ascending=[False, True])
         ordered_labels = totals["label"].tolist()
         stage_label_order[stage] = ordered_labels
-        y_values = sankey_axis_positions(len(ordered_labels))
+        y_values = stage_y_positions.get(stage, sankey_axis_positions(len(ordered_labels)))
+        if len(y_values) < len(ordered_labels):
+            y_values = sankey_axis_positions(len(ordered_labels))
         x_value = stage_position / stage_count if stage_count else 0.5
         for y_value, label in zip(y_values, ordered_labels, strict=False):
             key = (stage, label)
@@ -4083,10 +4089,9 @@ def build_sankey_figure(
     if not values:
         return None
 
-    dark_mode = bool(st.session_state.get("dark_mode", False))
-    paper_bg = "#08111F" if dark_mode else "rgba(255,255,255,0)"
-    font_color = "#E5EEF9" if dark_mode else "#0F172A"
-    node_line = "rgba(255,255,255,0.42)" if dark_mode else "rgba(15,23,42,0.22)"
+    paper_bg = "#07111F"
+    font_color = "#F8FAFC"
+    node_line = "rgba(255,255,255,0.55)"
 
     fig = go.Figure(
         data=[
@@ -4094,8 +4099,8 @@ def build_sankey_figure(
                 arrangement="fixed",
                 node=dict(
                     pad=16,
-                    thickness=18,
-                    line=dict(color=node_line, width=0.65),
+                    thickness=20,
+                    line=dict(color=node_line, width=0.8),
                     label=node_labels,
                     color=node_colors,
                     x=node_x,
@@ -4113,12 +4118,12 @@ def build_sankey_figure(
         ]
     )
     fig.update_layout(
-        title=dict(text=title, x=0.01, xanchor="left", font=dict(size=22, color=font_color)),
+        title=dict(text=title, x=0.01, xanchor="left", font=dict(size=24, color=font_color)),
         paper_bgcolor=paper_bg,
         plot_bgcolor=paper_bg,
-        font=dict(color=font_color, size=12, family="Nunito Sans, Segoe UI, sans-serif"),
-        margin=dict(l=10, r=10, t=62, b=10),
-        height=720,
+        font=dict(color=font_color, size=15, family="Nunito Sans, Segoe UI, sans-serif"),
+        margin=dict(l=14, r=14, t=70, b=16),
+        height=760,
     )
     return fig
 
@@ -4205,6 +4210,9 @@ def render_sankey_flows(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
                         "year": SANKEY_YEAR_ORDER,
                         "rotor": SANKEY_ROTOR_ORDER,
                         "rating": SANKEY_RATING_ORDER,
+                    },
+                    {
+                        "year": [0.04, 0.23, 0.42, 0.61, 0.80],
                     },
                 )
                 if fig is None:
