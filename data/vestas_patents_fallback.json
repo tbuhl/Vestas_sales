@@ -1,0 +1,116 @@
+{
+  "generated_utc": "2026-05-18T06:23:35+00:00",
+  "source": "WIPO PATENTSCOPE (Vestas Wind Systems assignee query)",
+  "records": [
+    {
+      "title": "ANEMOMETER MEASUREMENT CORRECTION IN WIND TURBINES",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=WO2026098759&_cid=P12-MPATIE-82039-1",
+      "publication_number": "WO/2026/098759",
+      "publication_date": "2026-05-15",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "DUARTE PEREIRA, Goncalo Artur",
+      "assignee": "VESTAS",
+      "summary": "A method and system for determining a wind at a wind turbine (1) are provided. The method comprises a step of receiving an anemometer signal representative of the wind, a step of receiving a rotor azimuth signal representative of an orientation of a rotor (4) of the wind turbine (1), and a step of determining the wind based on at least the anemometer signal and a correction. The correction used for determining the wind speed is based on at least the azimuth signal."
+    },
+    {
+      "title": "WIND TURBINE POWER PLANT WITH PEAK POWER CONSUMPTION CONTROL",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=US478866080&_cid=P12-MPATIE-82039-1",
+      "publication_number": "20260132768",
+      "publication_date": "2026-05-14",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "Dumitru-Mihai VALCAN",
+      "assignee": "VESTAS",
+      "summary": "Controlling maximum power consumption of a power plant that includes a plurality of power generating units including a plurality of wind turbines, wherein the wind turbines are disconnected from an electrical power grid and connected to a power backup system. One operation includes setting a power consumption restriction mode of the wind turbines so that a predetermined power consuming activity is started or allowed to start, only for one selection of a plurality of selections of wind turbines of a group of wind turbines at one of a sequence of different start times or within one of non-overlapping start periods."
+    },
+    {
+      "title": "REINFORCEMENT OF WIND TURBINE STRUCTURES",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478864353&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3066125",
+      "publication_date": "2026-05-11",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "SKAFTE, Anders",
+      "assignee": "VESTAS",
+      "summary": null
+    },
+    {
+      "title": "HEATING A WIND TURBINE BLADE",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478593915&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3065962",
+      "publication_date": "2026-05-08",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "SPANDLEY, Luke",
+      "assignee": "VESTAS",
+      "summary": null
+    },
+    {
+      "title": "HEATING A WIND TURBINE BLADE",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478593913&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3065960",
+      "publication_date": "2026-05-08",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "BADGER, Paul",
+      "assignee": "VESTAS",
+      "summary": null
+    },
+    {
+      "title": "IMPROVED ELECTRO-THERMAL HEATING ELEMENTS",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478593772&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3065819",
+      "publication_date": "2026-05-08",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "SPANDLEY, Luke",
+      "assignee": "Vestas",
+      "summary": null
+    },
+    {
+      "title": "A METHOD FOR MANAGING COMMUNICATION WITH A PLURALITY OF ASSETS OF A RENEWABLE POWER PLANT",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=US478562899&_cid=P12-MPATIE-82039-1",
+      "publication_number": "20260127300",
+      "publication_date": "2026-05-07",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "Anders REIMER",
+      "assignee": "VESTAS",
+      "summary": "A method for managing communication of instructions to a plurality of controlled assets ( 4 ), eg. wind turbines, arranged within a private communication network of a renewable power plant ( 3 ) is disclosed. One or more requesting assets ( 5 ), arranged within the private communication network, contacts ( 6 ) a secure data centre ( 1 ) arranged externally with respect to the private communication network, on behalf of one or more controlled assets ( 4 ) being associated with that specific requesting asset ( 5 ). The secure data centre ( 1 ) generates a database ( 8 ) comprising a registry of controlled assets ( 4 ) for which instructions were requested, and representing a portfolio of controlled assets ( 4 ) being managed by the secure data centre ( 1 ). The secure data centre ( 1 ) subsequently manages communication of instructions originating from an external control centre ( 2 ) to each of the registered controlled assets ( 4 ) of the portfolio of the secure data centre ( 1 ), upon request from the requesting assets ( 5 )."
+    },
+    {
+      "title": "A RENEWABLE ENERGY POWER PLANT COMPRISING A HYDROGEN GENERATING SYSTEM",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478593645&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3065714",
+      "publication_date": "2026-05-07",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "ABEYASEKERA, Tusitha",
+      "assignee": "VESTAS",
+      "summary": null
+    },
+    {
+      "title": "CONTROLLING ACTIVATION OF INDIVIDUAL PITCH CONTROL OF WIND TURBINE ROTOR BLADES BASED ON BLADE LOAD VOLATILITY",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=WO2026092814&_cid=P12-MPATIE-82039-1",
+      "publication_number": "WO/2026/092814",
+      "publication_date": "2026-05-07",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "GILES, Alexander Duncan",
+      "assignee": "VESTAS",
+      "summary": "The invention provides a controller for a wind turbine having a plurality of rotor blades. The controller is for controlling activation of individual pitch control of the rotor blades. The controller is configured to receive a flap load signal, from a blade load sensor of each of the plurality of rotor blades, indicative of flap loading on each of the respective rotor blades. The controller is configured to determine, based on the received flap load signals, a standard deviation parameter indicative of volatility of loading on the rotor blades of the wind turbine. The controller is configured to control activation of individual pitch control based on the determined standard deviation parameter."
+    },
+    {
+      "title": "METHOD FOR OPERATING A WIND POWER FACILITY",
+      "link": "https://patentscope.wipo.int/search/en/detail.jsf?docId=ES478593600&_cid=P12-MPATIE-82039-1",
+      "publication_number": "3065668",
+      "publication_date": "2026-05-07",
+      "filing_date": null,
+      "priority_date": null,
+      "inventor": "WEI, Mu",
+      "assignee": "Vestas",
+      "summary": null
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -23,6 +24,7 @@ DATA_CACHE_DIR = Path("data_cache")
 PARSED_DATA_FILE = DATA_CACHE_DIR / "vestas_parsed_data.pkl"
 STOCK_MONTHLY_FILE = DATA_DIR / "vestas_stock_monthly.json"
 MARKET_MONTHLY_FILE = DATA_DIR / "market_prices_monthly.json"
+PATENTS_FALLBACK_FILE = DATA_DIR / "vestas_patents_fallback.json"
 
 NEWS_FEEDS = [
     {
@@ -75,10 +77,27 @@ VESTAS_NEWS_BLACKLIST = (
 )
 
 VESTAS_TITLE_RE = re.compile(r"\b(?:vestas|vws\.co|vwdr)\b", re.IGNORECASE)
-PATENTSCOPE_SEARCH_URL = (
-    "https://patentscope.wipo.int/search/en/result.jsf"
-    "?query=PA%3A%22Vestas%20Wind%20Systems%22&sortOption=-DP"
-)
+PATENTSCOPE_SEARCH_URLS = [
+    (
+        "https://patentscope.wipo.int/search/en/result.jsf"
+        "?query=PA%3A%22Vestas%20Wind%20Systems%22&sortOption=-DP"
+    ),
+    (
+        "https://patentscope2.wipo.int/search/en/result.jsf"
+        "?query=PA%3A%22Vestas%20Wind%20Systems%22&sortOption=-DP"
+    ),
+]
+PATENT_COLUMNS = [
+    "title",
+    "link",
+    "publication_number",
+    "publication_date",
+    "filing_date",
+    "priority_date",
+    "inventor",
+    "assignee",
+    "summary",
+]
 
 DEFAULT_ECON_METRICS = [
     "revenue (mEUR)",
@@ -1834,26 +1853,46 @@ def load_latest_news() -> pd.DataFrame:
     return news.loc[selected_idx].copy()
 
 
-@st.cache_data(show_spinner=False, ttl=43_200)
-def load_latest_patents() -> pd.DataFrame:
-    columns = [
-        "title",
-        "link",
-        "publication_number",
-        "publication_date",
-        "filing_date",
-        "priority_date",
-        "inventor",
-        "assignee",
-        "summary",
-    ]
-    try:
-        resp = requests.get(PATENTSCOPE_SEARCH_URL, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
-        page = resp.text
-    except Exception:
-        return pd.DataFrame(columns=columns)
+def empty_patents_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=PATENT_COLUMNS)
 
+
+def normalize_patents_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return empty_patents_frame()
+
+    out = frame.copy()
+    for col in PATENT_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    out = out[PATENT_COLUMNS].copy()
+    out["publication_date"] = pd.to_datetime(out["publication_date"], errors="coerce")
+    out["filing_date"] = pd.to_datetime(out["filing_date"], errors="coerce")
+    out["priority_date"] = pd.to_datetime(out["priority_date"], errors="coerce")
+    out = out.drop_duplicates(subset=["publication_number", "title"], keep="first")
+    out = out.sort_values(["publication_date", "title"], ascending=[False, True]).head(10)
+    return out
+
+
+def load_patents_fallback() -> pd.DataFrame:
+    if not PATENTS_FALLBACK_FILE.exists():
+        return empty_patents_frame()
+    try:
+        payload = json.loads(PATENTS_FALLBACK_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return empty_patents_frame()
+    if isinstance(payload, dict):
+        records = payload.get("records", [])
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        records = []
+    if not isinstance(records, list) or not records:
+        return empty_patents_frame()
+    return normalize_patents_frame(pd.DataFrame(records))
+
+
+def extract_wipo_patents(page: str) -> pd.DataFrame:
     def html_text(value: str | None) -> str | None:
         if value is None:
             return None
@@ -1862,28 +1901,60 @@ def load_latest_patents() -> pd.DataFrame:
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned or None
 
+    row_blocks = re.findall(
+        r"<tr[^>]*data-ri=\"\d+\"[^>]*>.*?</tr>",
+        page,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not row_blocks:
+        row_blocks = re.findall(
+            r"<div[^>]*class=\"[^\"]*ps-patent-result[^\"]*\"[\s\S]*?</div>\s*</div>",
+            page,
+            flags=re.IGNORECASE,
+        )
+
     rows: list[dict[str, Any]] = []
-    for row_html in re.findall(r"<tr data-ri=\"\d+\".*?</tr>", page, flags=re.IGNORECASE | re.DOTALL):
+    for row_html in row_blocks:
         pub_no_match = re.search(
-            r"ps-patent-result--title--patent-number\">(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+            r"ps-patent-result--title--patent-number[^>]*>(.*?)</span>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
         )
         title_match = re.search(
             r"ps-patent-result--title--title[^>]*>(.*?)</span>\s*</span>",
             row_html,
             flags=re.IGNORECASE | re.DOTALL,
         )
+        if title_match is None:
+            title_match = re.search(
+                r"ps-patent-result--title--title[^>]*>(.*?)</span>",
+                row_html,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
         pub_date_match = re.search(
-            r"resultListTableColumnPubDate\"[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+            r"resultListTableColumnPubDate\"[^>]*>(.*?)</span>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
         )
-        link_match = re.search(r"<a href=\"([^\"]*detail\.jsf[^\"]+)\"", row_html, flags=re.IGNORECASE | re.DOTALL)
+        link_match = re.search(
+            r"<a[^>]*href=\"([^\"]*detail\.jsf[^\"]+)\"",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
         applicant_match = re.search(
-            r"ps-patent-result--applicant[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+            r"ps-patent-result--applicant[^>]*>(.*?)</span>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
         )
         inventor_match = re.search(
-            r"ps-patent-result--inventor[^>]*>(.*?)</span>", row_html, flags=re.IGNORECASE | re.DOTALL
+            r"ps-patent-result--inventor[^>]*>(.*?)</span>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
         )
         abstract_match = re.search(
-            r"ps-patent-result--abstract[^>]*>(.*?)</div>", row_html, flags=re.IGNORECASE | re.DOTALL
+            r"ps-patent-result--abstract[^>]*>(.*?)</div>",
+            row_html,
+            flags=re.IGNORECASE | re.DOTALL,
         )
 
         publication_number = html_text(pub_no_match.group(1)) if pub_no_match else None
@@ -1922,12 +1993,29 @@ def load_latest_patents() -> pd.DataFrame:
         )
 
     if not rows:
-        return pd.DataFrame(columns=columns)
+        return empty_patents_frame()
+    return normalize_patents_frame(pd.DataFrame(rows))
 
-    patents = pd.DataFrame(rows)
-    patents = patents.drop_duplicates(subset=["publication_number", "title"], keep="first")
-    patents = patents.sort_values(["publication_date", "title"], ascending=[False, True]).head(10)
-    return patents
+
+def fetch_wipo_patents() -> pd.DataFrame:
+    for url in PATENTSCOPE_SEARCH_URLS:
+        try:
+            resp = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            patents = extract_wipo_patents(resp.text)
+            if not patents.empty:
+                return patents
+        except Exception:
+            continue
+    return empty_patents_frame()
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def load_latest_patents() -> pd.DataFrame:
+    live = fetch_wipo_patents()
+    if not live.empty:
+        return live
+    return load_patents_fallback()
 
 
 def latest_data_handled_text(
@@ -2118,7 +2206,7 @@ def render_latest_news() -> None:
 
 def render_latest_patents() -> None:
     st.subheader("Latest Patents")
-    st.caption("Showing 10 most recent Vestas patent publications from WIPO PATENTSCOPE.")
+    st.caption("Showing 10 most recent Vestas patent publications from WIPO PATENTSCOPE (with local fallback snapshot).")
     st.caption("Inventor names are listed from filings; employment is inferred from Vestas applicant records.")
 
     patents = load_latest_patents()
