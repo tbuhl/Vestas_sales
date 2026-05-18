@@ -2125,7 +2125,7 @@ def render_information_page() -> None:
         "Use the sidebar filters to narrow years, countries, service schemes, platforms, and minimum order size."
     )
     st.write(
-        "Navigate tabs from high-level trends (Overall/Yearly/Quarterly) to deep dives (Across Years, Platform, Country, Delivery, Correlations)."
+        "Navigate tabs from high-level trends (Overall/Yearly/Quarterly) to deep dives (Across Years, Platform, Country, Sankey, Delivery, Correlations)."
     )
 
     st.markdown("**Disclaimer**")
@@ -3862,6 +3862,404 @@ def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
             st.plotly_chart(fig8, width="stretch")
 
 
+SANKEY_COLORS = {
+    "continent": "#2F8FCE",
+    "region": "#10B981",
+    "country": "#F59E0B",
+    "platform": "#D1495B",
+    "year": "#6D5BD0",
+    "rotor": "#06B6D4",
+    "rating": "#F97316",
+    "customer": "#EAB308",
+    "service": "#14B8A6",
+    "duration": "#A855F7",
+    "other": "#64748B",
+}
+
+SANKEY_YEAR_ORDER = ["2008-2012", "2013-2016", "2017-2020", "2021-2023", "2024-2026"]
+SANKEY_ROTOR_ORDER = ["<100 m rotor", "100-129 m rotor", "130-149 m rotor", "150-169 m rotor", "170+ m rotor", "Rotor unknown"]
+SANKEY_RATING_ORDER = ["<2.5 MW", "2.5-3.9 MW", "4.0-5.9 MW", "6.0-9.9 MW", "10+ MW", "MW unknown"]
+SANKEY_SERVICE_ORDER = ["AOM4000", "AOM5000", "Unknown/other service"]
+SANKEY_DURATION_ORDER = ["<10 years service", "10-19 years service", "20-29 years service", "30+ years service", "Service length unknown"]
+
+
+def sankey_rgba(hex_color: str, alpha: float) -> str:
+    color = str(hex_color).strip().lstrip("#")
+    if len(color) != 6:
+        return f"rgba(100,116,139,{alpha})"
+    try:
+        r = int(color[0:2], 16)
+        g = int(color[2:4], 16)
+        b = int(color[4:6], 16)
+    except ValueError:
+        return f"rgba(100,116,139,{alpha})"
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def sankey_label(value: Any, max_len: int = 30) -> str:
+    text = clean_text(value) or "Unknown"
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        text = "Unknown"
+    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "..."
+
+
+def sankey_top_or_other(frame: pd.DataFrame, label_col: str, value_col: str, top_n: int, other_label: str) -> pd.Series:
+    if frame.empty or label_col not in frame.columns or value_col not in frame.columns:
+        return pd.Series(dtype=object)
+    labels = frame[label_col].fillna("Unknown").astype(str)
+    totals = pd.DataFrame({"label": labels, "value": frame[value_col]}).groupby("label", as_index=False)["value"].sum()
+    keep = set(totals.sort_values("value", ascending=False).head(top_n)["label"])
+    return labels.where(labels.isin(keep), other_label)
+
+
+def sankey_platform_family(value: Any) -> str:
+    text = clean_text(value) or "Unknown"
+    match = re.search(r"\bV(\d{2,3})[-/]", text, flags=re.IGNORECASE)
+    if match:
+        return f"V{match.group(1)} family"
+    if text.lower() in {"unknown", "nan", "none"}:
+        return "Unknown platform"
+    return sankey_label(text, 24)
+
+
+def sankey_year_band(year: Any) -> str:
+    if pd.isna(year):
+        return "Unknown year"
+    value = int(float(year))
+    if value <= 2012:
+        return "2008-2012"
+    if value <= 2016:
+        return "2013-2016"
+    if value <= 2020:
+        return "2017-2020"
+    if value <= 2023:
+        return "2021-2023"
+    return "2024-2026"
+
+
+def sankey_rotor_bucket(rotor: Any) -> str:
+    if pd.isna(rotor):
+        return "Rotor unknown"
+    value = float(rotor)
+    if value < 100:
+        return "<100 m rotor"
+    if value < 130:
+        return "100-129 m rotor"
+    if value < 150:
+        return "130-149 m rotor"
+    if value < 170:
+        return "150-169 m rotor"
+    return "170+ m rotor"
+
+
+def sankey_rating_bucket(rating: Any) -> str:
+    if pd.isna(rating):
+        return "MW unknown"
+    value = float(rating)
+    if value < 2.5:
+        return "<2.5 MW"
+    if value < 4.0:
+        return "2.5-3.9 MW"
+    if value < 6.0:
+        return "4.0-5.9 MW"
+    if value < 10.0:
+        return "6.0-9.9 MW"
+    return "10+ MW"
+
+
+def sankey_service_group(value: Any) -> str:
+    text = (clean_text(value) or "").upper()
+    if "AOM4000" in text or "4000" in text:
+        return "AOM4000"
+    if "AOM5000" in text or "5000" in text:
+        return "AOM5000"
+    return "Unknown/other service"
+
+
+def sankey_service_duration(value: Any) -> str:
+    if pd.isna(value):
+        return "Service length unknown"
+    years = float(value)
+    if years < 10:
+        return "<10 years service"
+    if years < 20:
+        return "10-19 years service"
+    if years < 30:
+        return "20-29 years service"
+    return "30+ years service"
+
+
+def sankey_axis_positions(count: int) -> list[float]:
+    if count <= 1:
+        return [0.5]
+    if count == 2:
+        return [0.28, 0.72]
+    top, bottom = 0.02, 0.98
+    return [top + (bottom - top) * i / (count - 1) for i in range(count)]
+
+
+def build_sankey_figure(
+    frame: pd.DataFrame,
+    steps: list[tuple[str, str]],
+    value_col: str,
+    title: str,
+    stage_colors: dict[str, str],
+    stage_orders: dict[str, list[str]] | None = None,
+) -> go.Figure | None:
+    if frame.empty or value_col not in frame.columns:
+        return None
+
+    data = frame.copy()
+    data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
+    data = data.dropna(subset=[value_col])
+    data = data[data[value_col] > 0]
+    if data.empty:
+        return None
+
+    stage_orders = stage_orders or {}
+    node_labels: list[str] = []
+    node_colors: list[str] = []
+    node_x: list[float] = []
+    node_y: list[float] = []
+    node_index: dict[tuple[str, str], int] = {}
+    stage_label_order: dict[str, list[str]] = {}
+    stage_count = max(1, len(steps) - 1)
+
+    for stage_position, (column, stage) in enumerate(steps):
+        if column not in data.columns:
+            return None
+        labels = data[column].map(sankey_label)
+        totals = pd.DataFrame({"label": labels, "value": data[value_col]}).groupby("label", as_index=False)["value"].sum()
+        order = stage_orders.get(stage)
+        if order:
+            order_map = {label: idx for idx, label in enumerate(order)}
+            totals["order_rank"] = totals["label"].map(order_map).fillna(len(order) + 1)
+            totals = totals.sort_values(["order_rank", "label"])
+        else:
+            totals = totals.sort_values(["value", "label"], ascending=[False, True])
+        ordered_labels = totals["label"].tolist()
+        stage_label_order[stage] = ordered_labels
+        y_values = sankey_axis_positions(len(ordered_labels))
+        x_value = stage_position / stage_count if stage_count else 0.5
+        for y_value, label in zip(y_values, ordered_labels, strict=False):
+            key = (stage, label)
+            node_index[key] = len(node_labels)
+            node_labels.append(label)
+            node_colors.append(sankey_rgba(stage_colors.get(stage, SANKEY_COLORS["other"]), 0.94))
+            node_x.append(x_value)
+            node_y.append(y_value)
+
+    sources: list[int] = []
+    targets: list[int] = []
+    values: list[float] = []
+    link_colors: list[str] = []
+
+    for (src_col, src_stage), (dst_col, dst_stage) in zip(steps[:-1], steps[1:], strict=False):
+        pair = data[[src_col, dst_col, value_col]].copy()
+        pair[src_col] = pair[src_col].map(sankey_label)
+        pair[dst_col] = pair[dst_col].map(sankey_label)
+        grouped = pair.groupby([src_col, dst_col], as_index=False)[value_col].sum()
+        grouped = grouped[grouped[value_col] > 0]
+        src_order = {label: idx for idx, label in enumerate(stage_label_order.get(src_stage, []))}
+        dst_order = {label: idx for idx, label in enumerate(stage_label_order.get(dst_stage, []))}
+        grouped["src_rank"] = grouped[src_col].map(src_order).fillna(9999)
+        grouped["dst_rank"] = grouped[dst_col].map(dst_order).fillna(9999)
+        grouped = grouped.sort_values(["src_rank", "dst_rank", value_col], ascending=[True, True, False])
+
+        for row in grouped.itertuples(index=False):
+            src_label = getattr(row, src_col)
+            dst_label = getattr(row, dst_col)
+            value = float(getattr(row, value_col))
+            src_key = (src_stage, src_label)
+            dst_key = (dst_stage, dst_label)
+            if src_key not in node_index or dst_key not in node_index:
+                continue
+            sources.append(node_index[src_key])
+            targets.append(node_index[dst_key])
+            values.append(value)
+            link_colors.append(sankey_rgba(stage_colors.get(src_stage, SANKEY_COLORS["other"]), 0.28))
+
+    if not values:
+        return None
+
+    dark_mode = bool(st.session_state.get("dark_mode", False))
+    paper_bg = "#08111F" if dark_mode else "rgba(255,255,255,0)"
+    font_color = "#E5EEF9" if dark_mode else "#0F172A"
+    node_line = "rgba(255,255,255,0.42)" if dark_mode else "rgba(15,23,42,0.22)"
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                arrangement="fixed",
+                node=dict(
+                    pad=16,
+                    thickness=18,
+                    line=dict(color=node_line, width=0.65),
+                    label=node_labels,
+                    color=node_colors,
+                    x=node_x,
+                    y=node_y,
+                    hovertemplate="%{label}<extra></extra>",
+                ),
+                link=dict(
+                    source=sources,
+                    target=targets,
+                    value=values,
+                    color=link_colors,
+                    hovertemplate="%{source.label} -> %{target.label}<br>%{value:,.0f} MW<extra></extra>",
+                ),
+            )
+        ]
+    )
+    fig.update_layout(
+        title=dict(text=title, x=0.01, xanchor="left", font=dict(size=22, color=font_color)),
+        paper_bgcolor=paper_bg,
+        plot_bgcolor=paper_bg,
+        font=dict(color=font_color, size=12, family="Nunito Sans, Segoe UI, sans-serif"),
+        margin=dict(l=10, r=10, t=62, b=10),
+        height=720,
+    )
+    return fig
+
+
+def render_sankey_flows(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
+    st.subheader("Sankey Flows")
+    st.caption("Flow views use the current sidebar filters. Values are MW from announced order data.")
+
+    flow_tabs = st.tabs(["Geography to Platform", "Technology Migration", "Customers and Service"])
+
+    with flow_tabs[0]:
+        data = platforms.copy()
+        if "slot_mw" not in data.columns or data.empty:
+            st.info("No platform MW rows available for the selected filters.")
+        else:
+            data["slot_mw"] = pd.to_numeric(data["slot_mw"], errors="coerce")
+            data = data.dropna(subset=["slot_mw"])
+            data = data[data["slot_mw"] > 0].copy()
+            if data.empty:
+                st.info("No platform MW rows available for the selected filters.")
+            else:
+                for column in ["continent", "region", "country", "platform"]:
+                    data[column] = data[column].fillna("Unknown").replace("", "Unknown")
+                data = data[data["continent"] != "Unknown"].copy()
+                data["platform_family"] = data["platform"].map(sankey_platform_family)
+                data["country_top"] = sankey_top_or_other(data, "country", "slot_mw", 18, "Other countries")
+                data["platform_top"] = sankey_top_or_other(data, "platform_family", "slot_mw", 14, "Other platform families")
+                fig = build_sankey_figure(
+                    data,
+                    [
+                        ("continent", "continent"),
+                        ("region", "region"),
+                        ("country_top", "country"),
+                        ("platform_top", "platform"),
+                    ],
+                    "slot_mw",
+                    "Vestas Ordered MW Flow: Continent -> Region -> Country -> Platform Family",
+                    {
+                        "continent": SANKEY_COLORS["continent"],
+                        "region": SANKEY_COLORS["region"],
+                        "country": SANKEY_COLORS["country"],
+                        "platform": SANKEY_COLORS["platform"],
+                    },
+                )
+                if fig is None:
+                    st.info("Not enough complete rows for this Sankey view.")
+                else:
+                    st.plotly_chart(fig, width="stretch")
+                    st.caption(f"Based on {data['slot_mw'].sum() / 1000:,.1f} GW of platform-linked orders.")
+
+    with flow_tabs[1]:
+        data = platforms.copy()
+        if "slot_mw" not in data.columns or data.empty:
+            st.info("No platform MW rows available for the selected filters.")
+        else:
+            data["slot_mw"] = pd.to_numeric(data["slot_mw"], errors="coerce")
+            data = data.dropna(subset=["slot_mw"])
+            data = data[data["slot_mw"] > 0].copy()
+            if data.empty:
+                st.info("No platform MW rows available for the selected filters.")
+            else:
+                data["year_band"] = data["order_year"].map(sankey_year_band)
+                data["rotor_bucket"] = data["rotor_m"].map(sankey_rotor_bucket)
+                data["rating_bucket"] = data["mw_rating"].map(sankey_rating_bucket)
+                data["platform_family"] = data["platform"].map(sankey_platform_family)
+                data["platform_top"] = sankey_top_or_other(data, "platform_family", "slot_mw", 12, "Other platform families")
+                fig = build_sankey_figure(
+                    data,
+                    [
+                        ("year_band", "year"),
+                        ("rotor_bucket", "rotor"),
+                        ("rating_bucket", "rating"),
+                        ("platform_top", "platform"),
+                    ],
+                    "slot_mw",
+                    "Technology Migration: Order Era -> Rotor Class -> MW Rating -> Platform Family",
+                    {
+                        "year": SANKEY_COLORS["year"],
+                        "rotor": SANKEY_COLORS["rotor"],
+                        "rating": SANKEY_COLORS["rating"],
+                        "platform": SANKEY_COLORS["platform"],
+                    },
+                    {
+                        "year": SANKEY_YEAR_ORDER,
+                        "rotor": SANKEY_ROTOR_ORDER,
+                        "rating": SANKEY_RATING_ORDER,
+                    },
+                )
+                if fig is None:
+                    st.info("Not enough complete rows for this Sankey view.")
+                else:
+                    st.plotly_chart(fig, width="stretch")
+                    st.caption("Year bands are fixed in chronological order from oldest to newest.")
+
+    with flow_tabs[2]:
+        data = orders.copy()
+        if "size_mw" not in data.columns or data.empty:
+            st.info("No order MW rows available for the selected filters.")
+        else:
+            data["size_mw"] = pd.to_numeric(data["size_mw"], errors="coerce")
+            data = data.dropna(subset=["size_mw"])
+            data = data[data["size_mw"] > 0].copy()
+            data["customer"] = data["customer"].fillna("Unknown").replace("", "Unknown")
+            data = data[data["customer"].str.lower() != "unknown"].copy()
+            if data.empty:
+                st.info("No known-customer rows available for the selected filters.")
+            else:
+                for column in ["continent", "service_scheme"]:
+                    data[column] = data[column].fillna("Unknown").replace("", "Unknown")
+                data["continent_top"] = sankey_top_or_other(data, "continent", "size_mw", 6, "Other continents")
+                data["customer_top"] = sankey_top_or_other(data, "customer", "size_mw", 16, "Other known customers")
+                data["service_group"] = data["service_scheme"].map(sankey_service_group)
+                data["service_length_bucket"] = data["service_time_years"].map(sankey_service_duration)
+                fig = build_sankey_figure(
+                    data,
+                    [
+                        ("continent_top", "continent"),
+                        ("customer_top", "customer"),
+                        ("service_group", "service"),
+                        ("service_length_bucket", "duration"),
+                    ],
+                    "size_mw",
+                    "Known Customers: Continent -> Customer -> Service Scheme -> Service Length",
+                    {
+                        "continent": SANKEY_COLORS["continent"],
+                        "customer": SANKEY_COLORS["customer"],
+                        "service": SANKEY_COLORS["service"],
+                        "duration": SANKEY_COLORS["duration"],
+                    },
+                    {
+                        "service": SANKEY_SERVICE_ORDER,
+                        "duration": SANKEY_DURATION_ORDER,
+                    },
+                )
+                if fig is None:
+                    st.info("Not enough complete rows for this Sankey view.")
+                else:
+                    st.plotly_chart(fig, width="stretch")
+                    st.caption(f"Known-customer basis: {data['size_mw'].sum() / 1000:,.1f} GW.")
+
+
 def render_delivery_capacity(orders: pd.DataFrame) -> None:
     st.subheader("Installed Capacity and Delivery")
     if orders.empty:
@@ -4158,6 +4556,7 @@ def main() -> None:
             "Across Years",
             "Platform Analytics",
             "Country Analytics",
+            "Sankey Flows",
             "Delivery and Capacity",
             "Correlations",
             "Latest News",
@@ -4179,14 +4578,16 @@ def main() -> None:
     with tabs[5]:
         render_country_lens(orders_f, platforms_f)
     with tabs[6]:
-        render_delivery_capacity(orders_f)
+        render_sankey_flows(orders_f, platforms_f)
     with tabs[7]:
-        render_correlations(orders_f)
+        render_delivery_capacity(orders_f)
     with tabs[8]:
-        render_latest_news()
+        render_correlations(orders_f)
     with tabs[9]:
-        render_latest_patents()
+        render_latest_news()
     with tabs[10]:
+        render_latest_patents()
+    with tabs[11]:
         render_information_page()
 
 
