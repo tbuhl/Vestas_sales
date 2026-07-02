@@ -5,7 +5,7 @@ import json
 import math
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
@@ -1497,7 +1497,7 @@ def load_data(cache_key: str, workbook_path: str) -> tuple[pd.DataFrame, pd.Data
         payload = {
             "cache_key": cache_key,
             "workbook_path": str(workbook.resolve()),
-            "generated_utc": datetime.utcnow().isoformat(timespec="seconds"),
+            "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "economy": economy,
             "orders": orders,
             "platforms": platforms,
@@ -2091,7 +2091,9 @@ def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame, unannou
     delivery_base_orders = delivery_base["order_id"].nunique()
     delivery_base_mw = delivery_base["size_mw"].sum()
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    turbines_est = pd.to_numeric(platforms["turbines_qty"], errors="coerce").sum()
+
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("Orders", int_fmt(total_orders))
     m2.metric(
         "Ordered MW",
@@ -2101,18 +2103,24 @@ def render_header_metrics(orders: pd.DataFrame, platforms: pd.DataFrame, unannou
     )
     m3.metric("Platform-Mapped MW", mw_fmt(total_platform_mw))
     m4.metric(
+        "Turbines (est.)",
+        int_fmt(turbines_est) if pd.notna(turbines_est) and turbines_est > 0 else "-",
+        delta="from platform-mapped rows",
+        delta_color="off",
+    )
+    m5.metric(
         "Avg Order Size",
         mw_fmt(avg_order_mw),
         delta=f"based on {announced_mw / 1000.0:,.1f} GW announced",
         delta_color="off",
     )
-    m5.metric(
+    m6.metric(
         "Avg Delivery Time",
         days_fmt(avg_delivery_days),
         delta=f"based on {delivery_base_mw / 1000.0:,.1f} GW / {delivery_base_orders:,.0f} orders",
         delta_color="off",
     )
-    m6.metric("Countries", int_fmt(countries))
+    m7.metric("Countries", int_fmt(countries))
 
 
 def render_information_page() -> None:
@@ -2125,7 +2133,12 @@ def render_information_page() -> None:
         "Use the sidebar filters to narrow years, countries, service schemes, platforms, and minimum order size."
     )
     st.write(
-        "Navigate tabs from high-level trends (Overall/Yearly/Quarterly) to deep dives (Across Years, Platform, Country, Sankey, Delivery, Correlations)."
+        "Navigate tabs from high-level trends (Overall/Yearly/Quarterly) to deep dives (Across Years, Platform, "
+        "Turbine Explorer, Country, Customer Intelligence, Sankey, Delivery, Correlations)."
+    )
+    st.write(
+        "The Turbine Explorer holds a full catalog of every turbine variant in the order book - specs, swept area, "
+        "specific power, sales lifecycle, and per-model commercial detail."
     )
 
     st.markdown("**Disclaimer**")
@@ -2401,6 +2414,102 @@ def render_overall_economics(economy: pd.DataFrame, stock_monthly: pd.DataFrame,
             "mEUR/MW",
         )
 
+    ebit_metric = find_metric(["ebit"])
+    service_sales_metric = find_metric(["salesofservice"]) or find_metric(["sales", "service"])
+    employees_metric = find_metric(["average", "employees"]) or find_metric(["eoy", "employees"])
+    pivot = econ.pivot_table(index="year", columns="metric", values="value", aggfunc="mean")
+
+    def ratio_series(numerator: str | None, denominator: str | None, scale: float = 1.0) -> pd.Series | None:
+        if numerator is None or denominator is None:
+            return None
+        if numerator not in pivot.columns or denominator not in pivot.columns:
+            return None
+        series = (pivot[numerator] / pivot[denominator]) * scale
+        series = series.replace([np.inf, -np.inf], np.nan).dropna()
+        return series if not series.empty else None
+
+    ebit_margin = ratio_series(ebit_metric, revenue_metric, 100.0)
+    gross_margin = ratio_series(gross_profit_metric, revenue_metric, 100.0)
+    service_share = ratio_series(service_sales_metric, revenue_metric, 100.0)
+    book_to_bill = ratio_series(order_intake_mw_metric, deliveries_mw_metric)
+    rev_per_employee = ratio_series(revenue_metric, employees_metric, 1000.0)
+
+    if any(s is not None for s in (ebit_margin, gross_margin, service_share, book_to_bill, rev_per_employee)):
+        st.markdown("**Profitability and Order-Quality Ratios (derived)**")
+        r1, r2 = st.columns(2)
+        with r1:
+            fig_margins = go.Figure()
+            for series, name in (
+                (gross_margin, "Gross margin (%)"),
+                (ebit_margin, "EBIT margin (%)"),
+                (service_share, "Service share of revenue (%)"),
+            ):
+                if series is None:
+                    continue
+                fig_margins.add_trace(
+                    go.Scatter(x=series.index, y=series.values, mode="lines+markers", name=name, line=dict(width=3))
+                )
+            if fig_margins.data:
+                fig_margins.add_hline(y=0, line_dash="dot", line_color="rgba(148,163,184,0.6)")
+                fig_margins.update_layout(
+                    template=plotly_template(),
+                    title="Margin Development",
+                    yaxis_title="% of revenue",
+                    height=420,
+                    margin=dict(l=10, r=10, t=60, b=10),
+                )
+                st.plotly_chart(fig_margins, width="stretch")
+            else:
+                st.info("Margin inputs (EBIT, gross profit, revenue) not found in the economy sheet.")
+
+        with r2:
+            fig_ratio = go.Figure()
+            if book_to_bill is not None:
+                fig_ratio.add_trace(
+                    go.Scatter(
+                        x=book_to_bill.index,
+                        y=book_to_bill.values,
+                        mode="lines+markers",
+                        name="Book-to-bill (MW intake / MW delivered)",
+                        line=dict(width=3),
+                    )
+                )
+                fig_ratio.add_hline(
+                    y=1.0,
+                    line_dash="dash",
+                    line_color="rgba(209,73,91,0.8)",
+                    annotation_text="Backlog neutral (1.0)",
+                    annotation_position="bottom right",
+                )
+            if rev_per_employee is not None:
+                fig_ratio.add_trace(
+                    go.Scatter(
+                        x=rev_per_employee.index,
+                        y=rev_per_employee.values,
+                        mode="lines+markers",
+                        name="Revenue per employee (kEUR)",
+                        yaxis="y2",
+                        line=dict(width=3, dash="dot"),
+                    )
+                )
+            if fig_ratio.data:
+                fig_ratio.update_layout(
+                    template=plotly_template(),
+                    title="Book-to-Bill and Productivity",
+                    yaxis_title="Book-to-bill ratio",
+                    yaxis2=dict(title="kEUR / employee", overlaying="y", side="right", showgrid=False),
+                    height=420,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                    margin=dict(l=10, r=10, t=80, b=10),
+                )
+                st.plotly_chart(fig_ratio, width="stretch")
+            else:
+                st.info("Book-to-bill inputs (order intake MW, deliveries MW) not found in the economy sheet.")
+        st.caption(
+            "Derived from the economy sheet: book-to-bill above 1.0 means the order backlog is growing; "
+            "the gap between gross and EBIT margin shows fixed-cost and one-off pressure."
+        )
+
     st.markdown("**Vestas Stock Price (Monthly OHLC)**")
     if stock_monthly is None or stock_monthly.empty:
         st.info("No local stock file found. Expected: `data/vestas_stock_monthly.json`.")
@@ -2667,6 +2776,49 @@ def render_yearly_overview(orders: pd.DataFrame, platforms: pd.DataFrame, unanno
         )
         st.plotly_chart(fig2, width="stretch")
 
+    g1, g2 = st.columns(2)
+    with g1:
+        growth = yearly[["order_year", "total_with_unannounced_mw"]].copy()
+        growth["yoy_pct"] = growth["total_with_unannounced_mw"].pct_change() * 100.0
+        growth = growth.dropna(subset=["yoy_pct"])
+        if growth.empty:
+            st.info("Not enough years selected for growth rates.")
+        else:
+            growth["direction"] = np.where(growth["yoy_pct"] >= 0, "Growth", "Decline")
+            fig_g = px.bar(
+                growth,
+                x="order_year",
+                y="yoy_pct",
+                color="direction",
+                color_discrete_map={"Growth": "#10B981", "Decline": "#D1495B"},
+                template=plotly_template(),
+                title="Year-over-Year Order Intake Growth (total MW incl. unannounced)",
+                labels={"order_year": "Year", "yoy_pct": "YoY change (%)", "direction": ""},
+                height=410,
+            )
+            fig_g.add_hline(y=0, line_color="rgba(148,163,184,0.6)")
+            fig_g.update_layout(showlegend=False, yaxis=dict(ticksuffix="%"), margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_g, width="stretch")
+
+    with g2:
+        size_dist = orders.dropna(subset=["size_mw"]).copy()
+        if size_dist.empty:
+            st.info("No order size data for distribution view.")
+        else:
+            fig_box = px.box(
+                size_dist,
+                x="order_year",
+                y="size_mw",
+                template=plotly_template(),
+                title="Order Size Distribution per Year (log scale)",
+                labels={"order_year": "Year", "size_mw": "Order size (MW)"},
+                height=410,
+                log_y=True,
+            )
+            fig_box.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_box, width="stretch")
+            st.caption("Widening boxes and rising medians show the shift toward fewer but much larger orders.")
+
     continent_year = (
         orders.groupby(["order_year", "continent"], as_index=False)["size_mw"]
         .sum()
@@ -2861,8 +3013,20 @@ def render_quarterly_analytics(orders: pd.DataFrame, unannounced: pd.DataFrame) 
             title="Quarterly MW Mix (Announced vs Unannounced)",
             height=420,
         )
+        rolling = quarter_df[["year_quarter", "total_mw"]].copy()
+        rolling["rolling_4q_mw"] = rolling["total_mw"].rolling(4, min_periods=2).mean()
+        fig1.add_trace(
+            go.Scatter(
+                x=rolling["year_quarter"],
+                y=rolling["rolling_4q_mw"],
+                mode="lines",
+                name="4-quarter avg",
+                line=dict(width=3, color="#D1495B"),
+            )
+        )
         fig1.update_layout(xaxis_tickangle=-45, margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig1, width="stretch")
+        st.caption("The red line is the trailing 4-quarter average - the underlying intake momentum without quarter noise.")
 
     with c2:
         pivot = quarter_df.pivot(index="year", columns="quarter_label", values="total_mw").fillna(0)
@@ -3404,6 +3568,618 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
         st.plotly_chart(fig_d, width="stretch")
 
 
+TURBINE_GENERATION_ORDER = [
+    "Legacy (kW era)",
+    "Classic MW (V80-V90)",
+    "2 MW platform",
+    "3 MW platform",
+    "4 MW platform",
+    "EnVentus",
+    "Offshore",
+    "Platform-level order",
+]
+
+TURBINE_GENERATION_COLORS = {
+    "Legacy (kW era)": "#94A3B8",
+    "Classic MW (V80-V90)": "#64748B",
+    "2 MW platform": "#0EA5E9",
+    "3 MW platform": "#10B981",
+    "4 MW platform": "#F59E0B",
+    "EnVentus": "#D1495B",
+    "Offshore": "#6D5BD0",
+    "Platform-level order": "#CBD5E1",
+}
+
+# Indicative public profile per rotor family. Hub heights / wind classes are
+# typical catalog values from public Vestas materials, not order-specific data.
+TURBINE_FAMILY_INFO: dict[str, dict[str, Any]] = {
+    "V52": {
+        "segment": "Onshore",
+        "wind_class": "IEC IA / IIA (high-medium wind)",
+        "hub_heights": "44-74 m (typ.)",
+        "introduced": "~2000",
+        "note": "850 kW workhorse of the early 2000s with thousands of units installed worldwide.",
+    },
+    "V60": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIA (low wind)",
+        "hub_heights": "site-specific",
+        "introduced": "~2011",
+        "note": "Stretched-rotor 850 kW variant developed primarily for lower-wind sites in China.",
+    },
+    "V80": {
+        "segment": "Onshore + early offshore",
+        "wind_class": "IEC IA / IIA",
+        "hub_heights": "60-100 m (typ.)",
+        "introduced": "~1999",
+        "note": "Early 2 MW machine; offshore variants powered pioneering projects such as Horns Rev I.",
+    },
+    "V82": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIA (low wind)",
+        "hub_heights": "70-80 m (typ.)",
+        "introduced": "~2002",
+        "note": "Low-wind 1.65 MW machine that joined the portfolio via the NEG Micon merger (2004).",
+    },
+    "V90": {
+        "segment": "Onshore + early offshore",
+        "wind_class": "IEC IA-IIIA depending on variant",
+        "hub_heights": "80-105 m (typ.)",
+        "introduced": "~2003",
+        "note": "Highly successful family; the V90-3.0 also served early offshore farms (e.g., Barrow, Thanet).",
+    },
+    "V100": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIA / IIIA (low-medium wind)",
+        "hub_heights": "80-95 m (typ.)",
+        "introduced": "~2009",
+        "note": "2 MW platform low-wind rotor; particularly strong in the Americas.",
+    },
+    "V105": {
+        "segment": "Onshore",
+        "wind_class": "IEC IA (high wind)",
+        "hub_heights": "72-95 m (typ.)",
+        "introduced": "~2013",
+        "note": "High-wind sibling of the 3 MW platform.",
+    },
+    "V110": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIA (low wind)",
+        "hub_heights": "80-125 m (typ.)",
+        "introduced": "~2013",
+        "note": "US PTC-era best seller of the 2 MW platform.",
+    },
+    "V112": {
+        "segment": "Onshore + offshore variant",
+        "wind_class": "IEC IIA / IIIA",
+        "hub_heights": "84-119 m (typ.)",
+        "introduced": "~2010",
+        "note": "First member of the 3 MW platform; an offshore variant ran at Kårehamn.",
+    },
+    "V116": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIB / S",
+        "hub_heights": "80-94 m (typ.)",
+        "introduced": "~2017",
+        "note": "2 MW platform extension announced alongside the V120 for medium-wind sites.",
+    },
+    "V117": {
+        "segment": "Onshore",
+        "wind_class": "IEC IB / IIA + typhoon-class variants",
+        "hub_heights": "80-141 m (typ.)",
+        "introduced": "~2012",
+        "note": "Medium/high-wind rotor; typhoon-rated variants serve markets such as Japan.",
+    },
+    "V120": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIB (low wind)",
+        "hub_heights": "up to ~139 m",
+        "introduced": "~2017",
+        "note": "Low-wind 2 MW platform stretch aimed at India and US repowering.",
+    },
+    "V126": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIA / IIIB (low wind)",
+        "hub_heights": "87-166 m (incl. large steel towers)",
+        "introduced": "~2012",
+        "note": "Low-wind 3 MW platform rotor with some of the tallest tower options in the fleet.",
+    },
+    "V135": {
+        "segment": "Onshore",
+        "wind_class": "IEC S",
+        "hub_heights": "site-specific",
+        "introduced": "~2023",
+        "note": "4 MW platform variant for special site conditions.",
+    },
+    "V136": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIB / IIIA / S",
+        "hub_heights": "82-166 m (typ.)",
+        "introduced": "~2015",
+        "note": "Low/medium-wind rotor; 4.x MW uprates arrived from 2017 onward.",
+    },
+    "V150": {
+        "segment": "Onshore",
+        "wind_class": "IEC IIIB / S (low wind)",
+        "hub_heights": "105-166 m (typ.)",
+        "introduced": "~2017",
+        "note": "Best-selling low-wind model in this dataset; EnVentus 5.6-6.0 MW variants from 2019.",
+    },
+    "V155": {
+        "segment": "Onshore",
+        "wind_class": "IEC S (low wind)",
+        "hub_heights": "~120 m",
+        "introduced": "~2020",
+        "note": "Tailored for India and similar mid/low-wind markets.",
+    },
+    "V162": {
+        "segment": "Onshore",
+        "wind_class": "IEC S / IIIB",
+        "hub_heights": "119-169 m (typ.)",
+        "introduced": "~2019",
+        "note": "Flagship rotor of the modular EnVentus platform.",
+    },
+    "V163": {
+        "segment": "Onshore",
+        "wind_class": "IEC S (low wind)",
+        "hub_heights": "up to ~166 m",
+        "introduced": "~2022",
+        "note": "4 MW platform evolution for low-wind sites.",
+    },
+    "V164": {
+        "segment": "Offshore",
+        "wind_class": "IEC S (B)",
+        "hub_heights": "105-140 m (site-specific)",
+        "introduced": "~2014",
+        "note": "MHI Vestas offshore platform; the most powerful turbine in the world at launch (8-10 MW).",
+    },
+    "V172": {
+        "segment": "Onshore",
+        "wind_class": "IEC S (low-medium wind)",
+        "hub_heights": "up to ~175 m",
+        "introduced": "~2022",
+        "note": "Largest-rotor EnVentus onshore turbine to date.",
+    },
+    "V174": {
+        "segment": "Offshore",
+        "wind_class": "IEC S",
+        "hub_heights": "site-specific",
+        "introduced": "~2019",
+        "note": "Offshore rotor stretch of the V164 platform (9.5 MW class).",
+    },
+    "V236": {
+        "segment": "Offshore",
+        "wind_class": "IEC S (B), typhoon option",
+        "hub_heights": "~145-150 m (site-specific)",
+        "introduced": "prototype 2022, serial ~2024",
+        "note": "Offshore flagship with a 43,700+ m2 swept area; among the world's most powerful turbines.",
+    },
+}
+
+
+def turbine_family(platform: Any) -> str:
+    text = clean_text(platform) or "Unknown"
+    match = re.match(r"^(V\d{2,3})-", text.upper())
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"\d+(\.\d+)?MW", text.upper()):
+        return "Platform-level"
+    return "Other"
+
+
+def turbine_generation(family: str, rating: float) -> str:
+    if family in {"V164", "V174", "V236"}:
+        return "Offshore"
+    if family in {"V52", "V60"}:
+        return "Legacy (kW era)"
+    if family in {"V80", "V82", "V90"}:
+        return "Classic MW (V80-V90)"
+    if family in {"V100", "V110", "V116", "V120"}:
+        return "2 MW platform"
+    if family in {"V162", "V172"}:
+        return "EnVentus"
+    if family == "V150" and not math.isnan(rating) and rating >= 5.5:
+        return "EnVentus"
+    if family in {"V105", "V112"}:
+        return "3 MW platform"
+    if family in {"V117", "V126", "V136"}:
+        if not math.isnan(rating) and rating >= 4.0:
+            return "4 MW platform"
+        return "3 MW platform"
+    if family in {"V135", "V150", "V155", "V163"}:
+        return "4 MW platform"
+    if family == "Platform-level":
+        return "Platform-level order"
+    if not math.isnan(rating):
+        if rating < 1.0:
+            return "Legacy (kW era)"
+        if rating < 2.7:
+            return "2 MW platform"
+        if rating < 4.0:
+            return "3 MW platform"
+        if rating < 5.5:
+            return "4 MW platform"
+        if rating < 8.0:
+            return "EnVentus"
+        return "Offshore"
+    return "Platform-level order"
+
+
+def build_turbine_catalog(platforms: pd.DataFrame) -> pd.DataFrame:
+    base = platforms[(platforms["platform"] != "Unknown") & (platforms["slot_mw"] > 0)].copy()
+    if base.empty:
+        return pd.DataFrame()
+
+    base["rotor_m"] = pd.to_numeric(base["rotor_m"], errors="coerce")
+    base["mw_rating"] = pd.to_numeric(base["mw_rating"], errors="coerce")
+    base["turbines_qty"] = pd.to_numeric(base["turbines_qty"], errors="coerce")
+    base["order_date"] = pd.to_datetime(base["order_date"], errors="coerce")
+
+    def top_label(series: pd.Series) -> str:
+        vals = series.dropna()
+        vals = vals[~vals.isin(["Unknown"])]
+        if vals.empty:
+            return "-"
+        return vals.value_counts().idxmax()
+
+    catalog = (
+        base.groupby("platform", as_index=False)
+        .agg(
+            rotor_m=("rotor_m", "median"),
+            mw_rating=("mw_rating", "median"),
+            units=("turbines_qty", "sum"),
+            total_mw=("slot_mw", "sum"),
+            orders=("order_id", "nunique"),
+            countries=("country", "nunique"),
+            customers=("customer", lambda s: s[~s.isin(["Unknown"])].nunique()),
+            first_order=("order_date", "min"),
+            last_order=("order_date", "max"),
+            top_country=("country", top_label),
+            avg_delivery_days=("delivery_days", "mean"),
+        )
+        .copy()
+    )
+
+    # The variant name (e.g. V136-3.45MW) is the authoritative spec; raw sheet
+    # cells occasionally hold uprated or slot-total values, so they only fill gaps.
+    parsed = catalog["platform"].map(parse_platform_specs)
+    name_rotor = parsed.map(lambda t: t[0])
+    name_rating = parsed.map(lambda t: t[1])
+    catalog["rotor_m"] = name_rotor.fillna(catalog["rotor_m"])
+    catalog["mw_rating"] = name_rating.fillna(catalog["mw_rating"])
+
+    catalog["family"] = catalog["platform"].map(turbine_family)
+    catalog["generation"] = [
+        turbine_generation(fam, rating if pd.notna(rating) else np.nan)
+        for fam, rating in zip(catalog["family"], catalog["mw_rating"], strict=False)
+    ]
+    catalog["swept_area_m2"] = np.pi * (catalog["rotor_m"] / 2.0) ** 2
+    catalog["specific_power_w_m2"] = catalog["mw_rating"] * 1_000_000.0 / catalog["swept_area_m2"]
+    catalog["avg_order_mw"] = catalog["total_mw"] / catalog["orders"]
+    total = catalog["total_mw"].sum()
+    catalog["mw_share_pct"] = 100.0 * catalog["total_mw"] / total if total > 0 else 0.0
+    catalog["first_year"] = catalog["first_order"].dt.year
+    catalog["last_year"] = catalog["last_order"].dt.year
+    catalog["active_years"] = catalog["last_year"] - catalog["first_year"] + 1
+    return catalog.sort_values("total_mw", ascending=False)
+
+
+def render_turbine_explorer(platforms: pd.DataFrame, orders: pd.DataFrame) -> None:
+    st.subheader("Turbine Explorer")
+    st.caption(
+        "Every turbine variant found in the order book, enriched with engineering metrics "
+        "(swept area, specific power) and an indicative public family profile. Respects sidebar filters."
+    )
+
+    catalog = build_turbine_catalog(platforms)
+    if catalog.empty:
+        st.info("No platform-mapped turbine rows after filtering.")
+        return
+
+    named = catalog[~catalog["generation"].eq("Platform-level order")].copy()
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Turbine variants", int_fmt(len(catalog)))
+    k2.metric("Rotor families", int_fmt(named["family"].nunique()))
+    k3.metric("Turbines (est.)", int_fmt(catalog["units"].sum()))
+    k4.metric("Platform-mapped MW", mw_fmt(catalog["total_mw"].sum()))
+    if named["mw_rating"].notna().any():
+        flagship = named.loc[named["mw_rating"].idxmax()]
+        k5.metric("Largest rating", f"{flagship['mw_rating']:.1f} MW", delta=flagship["platform"], delta_color="off")
+    best = catalog.iloc[0]
+    k6.metric("Top seller (MW)", best["platform"], delta=f"{best['total_mw']:,.0f} MW", delta_color="off")
+
+    view_tabs = st.tabs(["Model Catalog", "Technology Map", "Product Lifecycle", "Model Detail"])
+
+    with view_tabs[0]:
+        generations = [g for g in TURBINE_GENERATION_ORDER if g in set(catalog["generation"])]
+        gen_filter = st.multiselect(
+            "Filter by platform generation",
+            options=generations,
+            default=[],
+            key="turbine_catalog_generation",
+        )
+        table = catalog[catalog["generation"].isin(gen_filter)] if gen_filter else catalog
+
+        display = table[
+            [
+                "platform",
+                "generation",
+                "rotor_m",
+                "mw_rating",
+                "swept_area_m2",
+                "specific_power_w_m2",
+                "units",
+                "total_mw",
+                "mw_share_pct",
+                "orders",
+                "countries",
+                "customers",
+                "first_year",
+                "last_year",
+                "top_country",
+                "avg_order_mw",
+            ]
+        ].copy()
+        st.dataframe(
+            display,
+            width="stretch",
+            hide_index=True,
+            height=560,
+            column_config={
+                "platform": st.column_config.TextColumn("Model", pinned=True),
+                "generation": st.column_config.TextColumn("Generation"),
+                "rotor_m": st.column_config.NumberColumn("Rotor (m)", format="%.0f"),
+                "mw_rating": st.column_config.NumberColumn("Rating (MW)", format="%.2f"),
+                "swept_area_m2": st.column_config.NumberColumn("Swept area (m2)", format="%.0f"),
+                "specific_power_w_m2": st.column_config.NumberColumn("Specific power (W/m2)", format="%.0f"),
+                "units": st.column_config.NumberColumn("Units (est.)", format="%.0f"),
+                "total_mw": st.column_config.ProgressColumn(
+                    "Ordered MW",
+                    format="%.0f",
+                    min_value=0.0,
+                    max_value=float(catalog["total_mw"].max()),
+                ),
+                "mw_share_pct": st.column_config.NumberColumn("MW share (%)", format="%.1f"),
+                "orders": st.column_config.NumberColumn("Orders", format="%.0f"),
+                "countries": st.column_config.NumberColumn("Countries", format="%.0f"),
+                "customers": st.column_config.NumberColumn("Known customers", format="%.0f"),
+                "first_year": st.column_config.NumberColumn("First order", format="%d"),
+                "last_year": st.column_config.NumberColumn("Last order", format="%d"),
+                "top_country": st.column_config.TextColumn("Top country"),
+                "avg_order_mw": st.column_config.NumberColumn("Avg order (MW)", format="%.0f"),
+            },
+        )
+        st.download_button(
+            "Download turbine catalog (CSV)",
+            data=display.to_csv(index=False).encode("utf-8"),
+            file_name="vestas_turbine_catalog.csv",
+            mime="text/csv",
+        )
+        st.caption(
+            "Units are estimated from order-level turbine counts. Generic rows such as '2MW'/'4MW' are "
+            "orders announced at platform level without a named variant."
+        )
+
+    with view_tabs[1]:
+        tech = named.dropna(subset=["rotor_m", "mw_rating"]).copy()
+        if tech.empty:
+            st.info("No rotor/rating data available for the current filters.")
+        else:
+            fig = px.scatter(
+                tech,
+                x="rotor_m",
+                y="mw_rating",
+                size="total_mw",
+                color="generation",
+                color_discrete_map=TURBINE_GENERATION_COLORS,
+                category_orders={"generation": TURBINE_GENERATION_ORDER},
+                hover_name="platform",
+                hover_data={
+                    "rotor_m": ":.0f",
+                    "mw_rating": ":.2f",
+                    "specific_power_w_m2": ":.0f",
+                    "units": ":,.0f",
+                    "total_mw": ":,.0f",
+                    "first_year": True,
+                    "last_year": True,
+                    "generation": False,
+                },
+                size_max=52,
+                template=plotly_template(),
+                title="Rotor Diameter vs Rated Power (bubble = ordered MW)",
+                labels={"rotor_m": "Rotor diameter (m)", "mw_rating": "Rated power (MW)"},
+                height=620,
+            )
+            rotor_span = np.linspace(max(40.0, tech["rotor_m"].min() * 0.9), tech["rotor_m"].max() * 1.06, 60)
+            max_rating = tech["mw_rating"].max() * 1.18
+            for sp in (250, 350, 450):
+                iso = sp * np.pi * (rotor_span / 2.0) ** 2 / 1_000_000.0
+                mask = iso <= max_rating
+                if not mask.any():
+                    continue
+                fig.add_trace(
+                    go.Scatter(
+                        x=rotor_span[mask],
+                        y=iso[mask],
+                        mode="lines",
+                        line=dict(color="rgba(148,163,184,0.55)", width=1, dash="dot"),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    )
+                )
+                fig.add_annotation(
+                    x=float(rotor_span[mask][-1]),
+                    y=float(iso[mask][-1]),
+                    text=f"{sp} W/m2",
+                    showarrow=False,
+                    font=dict(size=11, color="rgba(148,163,184,0.9)"),
+                    xanchor="left",
+                )
+            fig.update_yaxes(range=[0, max_rating])
+            fig.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig, width="stretch")
+            st.caption(
+                "Dotted isolines show constant specific power. Lower specific power = larger rotor per MW, "
+                "built for lower-wind sites and higher capacity factors."
+            )
+
+            sp_base = platforms[(platforms["platform"] != "Unknown") & (platforms["slot_mw"] > 0)].copy()
+            sp_base["rotor_m"] = pd.to_numeric(sp_base["rotor_m"], errors="coerce")
+            sp_base["mw_rating"] = pd.to_numeric(sp_base["mw_rating"], errors="coerce")
+            sp_base = sp_base.dropna(subset=["rotor_m", "mw_rating"])
+            sp_base = sp_base[sp_base["rotor_m"] > 0]
+            if not sp_base.empty:
+                sp_base["specific_power"] = sp_base["mw_rating"] * 1_000_000.0 / (np.pi * (sp_base["rotor_m"] / 2.0) ** 2)
+                sp_year = (
+                    sp_base.assign(weighted=sp_base["specific_power"] * sp_base["slot_mw"])
+                    .groupby("order_year", as_index=False)
+                    .agg(weighted=("weighted", "sum"), mw=("slot_mw", "sum"))
+                )
+                sp_year["avg_specific_power"] = sp_year["weighted"] / sp_year["mw"]
+                fig_sp = px.line(
+                    sp_year,
+                    x="order_year",
+                    y="avg_specific_power",
+                    markers=True,
+                    template=plotly_template(),
+                    title="MW-Weighted Average Specific Power of Ordered Turbines",
+                    labels={"order_year": "Order year", "avg_specific_power": "Specific power (W/m2)"},
+                    height=400,
+                )
+                fig_sp.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+                st.plotly_chart(fig_sp, width="stretch")
+                st.caption(
+                    "The long-run decline in specific power reflects the industry shift toward "
+                    "low-wind rotors that maximise energy capture per installed MW."
+                )
+
+    with view_tabs[2]:
+        life = catalog.dropna(subset=["first_order", "last_order"]).copy()
+        if life.empty:
+            st.info("No order dates available to build the lifecycle view.")
+        else:
+            life["lifecycle_end"] = life["last_order"] + pd.Timedelta(days=60)
+            life = life.sort_values("first_order")
+            fig_life = px.timeline(
+                life,
+                x_start="first_order",
+                x_end="lifecycle_end",
+                y="platform",
+                color="generation",
+                color_discrete_map=TURBINE_GENERATION_COLORS,
+                category_orders={"generation": TURBINE_GENERATION_ORDER},
+                hover_data={
+                    "total_mw": ":,.0f",
+                    "units": ":,.0f",
+                    "orders": ":,.0f",
+                    "first_year": True,
+                    "last_year": True,
+                    "lifecycle_end": False,
+                },
+                template=plotly_template(),
+                title="Sales Lifecycle per Model (first to last order in dataset)",
+                height=max(520, 24 * len(life) + 140),
+            )
+            fig_life.update_yaxes(autorange="reversed", title="")
+            fig_life.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_life, width="stretch")
+            st.caption(
+                "Bars span from the first to the last order observed for each variant - a direct view of "
+                "product generation turnover and how long each model stays commercially active."
+            )
+
+    with view_tabs[3]:
+        model_options = catalog["platform"].tolist()
+        selected_model = st.selectbox("Choose a turbine model", options=model_options, key="turbine_detail_model")
+        row = catalog[catalog["platform"] == selected_model].iloc[0]
+        family_info = TURBINE_FAMILY_INFO.get(row["family"], {})
+
+        d1, d2, d3, d4, d5 = st.columns(5)
+        d1.metric("Rotor diameter", f"{row['rotor_m']:.0f} m" if pd.notna(row["rotor_m"]) else "-")
+        d2.metric("Rated power", f"{row['mw_rating']:.2f} MW" if pd.notna(row["mw_rating"]) else "-")
+        d3.metric(
+            "Swept area",
+            f"{row['swept_area_m2']:,.0f} m2" if pd.notna(row["swept_area_m2"]) else "-",
+        )
+        d4.metric(
+            "Specific power",
+            f"{row['specific_power_w_m2']:,.0f} W/m2" if pd.notna(row["specific_power_w_m2"]) else "-",
+        )
+        d5.metric("Generation", row["generation"])
+
+        e1, e2, e3, e4, e5 = st.columns(5)
+        e1.metric("Ordered MW", mw_fmt(row["total_mw"]))
+        e2.metric("Units (est.)", int_fmt(row["units"]) if pd.notna(row["units"]) and row["units"] > 0 else "-")
+        e3.metric("Orders", int_fmt(row["orders"]))
+        e4.metric("Countries", int_fmt(row["countries"]))
+        e5.metric(
+            "Active span",
+            f"{int(row['first_year'])}-{int(row['last_year'])}" if pd.notna(row["first_year"]) else "-",
+        )
+
+        if family_info:
+            st.markdown(
+                f"**Indicative {row['family']} family profile** (public catalog data - verify against official spec sheets)  \n"
+                f"Segment: {family_info.get('segment', '-')} | Wind class: {family_info.get('wind_class', '-')} | "
+                f"Typical hub heights: {family_info.get('hub_heights', '-')} | Introduced: {family_info.get('introduced', '-')}  \n"
+                f"{family_info.get('note', '')}"
+            )
+        else:
+            st.caption("No curated family profile available for this entry.")
+
+        model_rows = platforms[platforms["platform"] == selected_model].copy()
+        c1, c2 = st.columns(2)
+        with c1:
+            yearly_mw = model_rows.groupby("order_year", as_index=False)["slot_mw"].sum()
+            fig_y = px.bar(
+                yearly_mw,
+                x="order_year",
+                y="slot_mw",
+                template=plotly_template(),
+                title=f"{selected_model}: Ordered MW per Year",
+                labels={"order_year": "Year", "slot_mw": "MW"},
+                height=420,
+            )
+            fig_y.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_y, width="stretch")
+
+        with c2:
+            country_mw = (
+                model_rows.groupby("country", as_index=False)["slot_mw"]
+                .sum()
+                .sort_values("slot_mw", ascending=False)
+                .head(12)
+            )
+            fig_c = px.bar(
+                country_mw,
+                x="slot_mw",
+                y="country",
+                orientation="h",
+                template=plotly_template(),
+                title=f"{selected_model}: Top Countries",
+                labels={"slot_mw": "MW", "country": ""},
+                height=420,
+            )
+            fig_c.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_c, width="stretch")
+
+        cust = (
+            model_rows[model_rows["customer"] != "Unknown"]
+            .groupby("customer", as_index=False)
+            .agg(mw=("slot_mw", "sum"), orders=("order_id", "nunique"))
+            .sort_values("mw", ascending=False)
+            .head(10)
+        )
+        if not cust.empty:
+            st.markdown(f"**Top known customers for {selected_model}**")
+            st.dataframe(
+                cust.rename(columns={"customer": "Customer", "mw": "MW", "orders": "Orders"}),
+                width="stretch",
+                hide_index=True,
+            )
+
+
 def render_country_maps(
     orders: pd.DataFrame,
     platforms: pd.DataFrame,
@@ -3871,6 +4647,225 @@ def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
             fig8.update_traces(textposition="inside", textinfo="percent+label")
             fig8.update_layout(margin=dict(l=10, r=10, t=60, b=10))
             st.plotly_chart(fig8, width="stretch")
+
+
+def render_customer_intelligence(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
+    st.subheader("Customer Intelligence")
+    st.caption(
+        "Who buys, how concentrated the order book is, and how much business comes from "
+        "repeat customers. Based on announced orders with a disclosed customer; respects sidebar filters."
+    )
+
+    if orders.empty:
+        st.info("No order rows after filtering.")
+        return
+
+    total_mw = float(orders["size_mw"].sum())
+    known = orders[orders["customer"] != "Unknown"].copy()
+    if known.empty:
+        st.info("No orders with a known customer in the current selection.")
+        return
+    known["size_mw"] = pd.to_numeric(known["size_mw"], errors="coerce").fillna(0.0)
+    known_mw = float(known["size_mw"].sum())
+
+    cust_stats = (
+        known.groupby("customer", as_index=False)
+        .agg(
+            total_mw=("size_mw", "sum"),
+            orders=("order_id", "nunique"),
+            first_year=("order_year", "min"),
+            last_year=("order_year", "max"),
+            countries=("country", "nunique"),
+            avg_order_mw=("size_mw", "mean"),
+        )
+        .sort_values("total_mw", ascending=False)
+    )
+    cust_stats["years_active"] = cust_stats["last_year"] - cust_stats["first_year"] + 1
+    cust_stats["mw_share_pct"] = 100.0 * cust_stats["total_mw"] / known_mw if known_mw > 0 else 0.0
+
+    repeat_customers = cust_stats[cust_stats["orders"] >= 2]
+    repeat_mw_share = 100.0 * repeat_customers["total_mw"].sum() / known_mw if known_mw > 0 else 0.0
+    top10_share = float(cust_stats.head(10)["total_mw"].sum() / known_mw * 100.0) if known_mw > 0 else 0.0
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Known customers", int_fmt(len(cust_stats)))
+    k2.metric(
+        "Disclosed-customer MW",
+        mw_fmt(known_mw),
+        delta=f"{100.0 * known_mw / total_mw:,.0f}% of announced MW" if total_mw > 0 else None,
+        delta_color="off",
+    )
+    k3.metric(
+        "Repeat-buyer MW share",
+        f"{repeat_mw_share:,.0f}%",
+        delta=f"{len(repeat_customers):,} customers with 2+ orders",
+        delta_color="off",
+    )
+    k4.metric("Top-10 concentration", f"{top10_share:,.0f}%", delta="of disclosed MW", delta_color="off")
+    top_account = cust_stats.iloc[0]
+    k5.metric("Largest account", top_account["customer"], delta=mw_fmt(top_account["total_mw"]), delta_color="off")
+
+    first_year_map = cust_stats.set_index("customer")["first_year"]
+    known["customer_status"] = np.where(
+        known["order_year"] > known["customer"].map(first_year_map),
+        "Returning customer",
+        "New customer",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        status_year = (
+            known.groupby(["order_year", "customer_status"], as_index=False)["size_mw"].sum().sort_values("order_year")
+        )
+        fig_status = px.bar(
+            status_year,
+            x="order_year",
+            y="size_mw",
+            color="customer_status",
+            barmode="stack",
+            template=plotly_template(),
+            color_discrete_map={"New customer": "#F59E0B", "Returning customer": "#10B981"},
+            title="New vs Returning Customer MW by Year",
+            labels={"order_year": "Year", "size_mw": "MW", "customer_status": ""},
+            height=440,
+        )
+        fig_status.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig_status, width="stretch")
+        st.caption("A customer counts as 'new' in the first year it appears anywhere in the dataset.")
+
+    with c2:
+        conc_rows: list[dict[str, Any]] = []
+        for year, grp in known.groupby("order_year"):
+            mw_by_cust = grp.groupby("customer")["size_mw"].sum().sort_values(ascending=False)
+            year_mw = float(mw_by_cust.sum())
+            if year_mw <= 0:
+                continue
+            conc_rows.append(
+                {
+                    "order_year": int(year),
+                    "Top 1": 100.0 * mw_by_cust.head(1).sum() / year_mw,
+                    "Top 5": 100.0 * mw_by_cust.head(5).sum() / year_mw,
+                    "Top 10": 100.0 * mw_by_cust.head(10).sum() / year_mw,
+                }
+            )
+        conc = pd.DataFrame(conc_rows)
+        if not conc.empty:
+            conc_long = conc.melt(id_vars="order_year", var_name="bucket", value_name="share_pct")
+            fig_conc = px.line(
+                conc_long,
+                x="order_year",
+                y="share_pct",
+                color="bucket",
+                markers=True,
+                template=plotly_template(),
+                title="Customer Concentration per Year (share of disclosed MW)",
+                labels={"order_year": "Year", "share_pct": "Share (%)", "bucket": ""},
+                height=440,
+            )
+            fig_conc.update_layout(yaxis=dict(range=[0, 100], ticksuffix="%"), margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_conc, width="stretch")
+            st.caption("Falling lines = a broader customer base; rising lines = growing key-account dependency.")
+
+    top_n = st.slider("Key accounts to track", 5, 20, 10, key="customer_intel_top_n")
+    top_customers = cust_stats.head(top_n)["customer"].tolist()
+    cum = (
+        known[known["customer"].isin(top_customers)]
+        .groupby(["order_year", "customer"], as_index=False)["size_mw"]
+        .sum()
+        .sort_values("order_year")
+    )
+    if not cum.empty:
+        cum["cumulative_mw"] = cum.groupby("customer")["size_mw"].cumsum()
+        fig_cum = px.line(
+            cum,
+            x="order_year",
+            y="cumulative_mw",
+            color="customer",
+            markers=True,
+            template=plotly_template(),
+            title=f"Cumulative MW Bought by Top {top_n} Accounts",
+            labels={"order_year": "Year", "cumulative_mw": "Cumulative MW", "customer": ""},
+            height=480,
+        )
+        fig_cum.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig_cum, width="stretch")
+
+    st.markdown("**Key account table**")
+    st.dataframe(
+        cust_stats.head(40)[
+            ["customer", "total_mw", "mw_share_pct", "orders", "avg_order_mw", "countries", "first_year", "last_year", "years_active"]
+        ],
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "customer": st.column_config.TextColumn("Customer", pinned=True),
+            "total_mw": st.column_config.ProgressColumn(
+                "Total MW",
+                format="%.0f",
+                min_value=0.0,
+                max_value=float(cust_stats["total_mw"].max()),
+            ),
+            "mw_share_pct": st.column_config.NumberColumn("MW share (%)", format="%.1f"),
+            "orders": st.column_config.NumberColumn("Orders", format="%.0f"),
+            "avg_order_mw": st.column_config.NumberColumn("Avg order (MW)", format="%.0f"),
+            "countries": st.column_config.NumberColumn("Countries", format="%.0f"),
+            "first_year": st.column_config.NumberColumn("First order", format="%d"),
+            "last_year": st.column_config.NumberColumn("Last order", format="%d"),
+            "years_active": st.column_config.NumberColumn("Years active", format="%d"),
+        },
+    )
+
+    st.markdown("**Customer drill-down**")
+    selected_customer = st.selectbox(
+        "Choose a customer",
+        options=cust_stats["customer"].tolist(),
+        key="customer_intel_detail",
+    )
+    cust_orders = known[known["customer"] == selected_customer]
+    cust_platforms = platforms[(platforms["customer"] == selected_customer) & (platforms["platform"] != "Unknown")]
+
+    cd1, cd2 = st.columns(2)
+    with cd1:
+        yearly = cust_orders.groupby("order_year", as_index=False)["size_mw"].sum()
+        fig_cy = px.bar(
+            yearly,
+            x="order_year",
+            y="size_mw",
+            template=plotly_template(),
+            title=f"{selected_customer}: Ordered MW per Year",
+            labels={"order_year": "Year", "size_mw": "MW"},
+            height=400,
+        )
+        fig_cy.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig_cy, width="stretch")
+
+    with cd2:
+        if cust_platforms.empty:
+            geo = cust_orders.groupby("country", as_index=False)["size_mw"].sum().sort_values("size_mw", ascending=False)
+            fig_cp = px.bar(
+                geo,
+                x="size_mw",
+                y="country",
+                orientation="h",
+                template=plotly_template(),
+                title=f"{selected_customer}: Countries",
+                labels={"size_mw": "MW", "country": ""},
+                height=400,
+            )
+        else:
+            mix = cust_platforms.groupby("platform", as_index=False)["slot_mw"].sum().sort_values("slot_mw", ascending=False).head(12)
+            fig_cp = px.bar(
+                mix,
+                x="slot_mw",
+                y="platform",
+                orientation="h",
+                template=plotly_template(),
+                title=f"{selected_customer}: Turbine Models Bought",
+                labels={"slot_mw": "MW", "platform": ""},
+                height=400,
+            )
+        fig_cp.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=10, r=10, t=60, b=10))
+        st.plotly_chart(fig_cp, width="stretch")
 
 
 SANKEY_COLORS = {
@@ -4370,6 +5365,76 @@ def render_delivery_capacity(orders: pd.DataFrame) -> None:
         fig_t.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig_t, width="stretch")
 
+    c5, c6 = st.columns(2)
+    with c5:
+        scheduled = orders.dropna(subset=["order_year", "delivery_year", "size_mw"]).copy()
+        if scheduled.empty:
+            st.info("No orders with both order and delivery year for the backlog view.")
+        else:
+            ordered_per_year = scheduled.groupby("order_year")["size_mw"].sum()
+            delivered_per_year = scheduled.groupby("delivery_year")["size_mw"].sum()
+            year_axis = range(
+                int(min(ordered_per_year.index.min(), delivered_per_year.index.min())),
+                int(max(ordered_per_year.index.max(), delivered_per_year.index.max())) + 1,
+            )
+            backlog = pd.DataFrame(index=list(year_axis))
+            backlog["cum_ordered"] = ordered_per_year.reindex(backlog.index).fillna(0.0).cumsum()
+            backlog["cum_delivered"] = delivered_per_year.reindex(backlog.index).fillna(0.0).cumsum()
+            backlog["open_mw"] = backlog["cum_ordered"] - backlog["cum_delivered"]
+            fig_bl = go.Figure()
+            fig_bl.add_trace(
+                go.Scatter(
+                    x=backlog.index,
+                    y=backlog["open_mw"],
+                    mode="lines+markers",
+                    fill="tozeroy",
+                    name="Open MW (ordered, not yet delivered)",
+                    line=dict(width=3, color="#6D5BD0"),
+                    fillcolor="rgba(109,91,208,0.25)",
+                )
+            )
+            fig_bl.update_layout(
+                template=plotly_template(),
+                title="Implied Delivery Pipeline (orders with a delivery schedule)",
+                yaxis_title="MW",
+                xaxis_title="Year",
+                height=430,
+                margin=dict(l=10, r=10, t=60, b=10),
+            )
+            st.plotly_chart(fig_bl, width="stretch")
+            st.caption(
+                f"Directional view only: covers the {len(scheduled):,} announced orders "
+                "({:.0f}% of MW) where a delivery year is disclosed.".format(
+                    100.0 * scheduled["size_mw"].sum() / max(orders["size_mw"].sum(), 1e-9)
+                )
+            )
+
+    with c6:
+        days = pd.to_numeric(orders["delivery_days"], errors="coerce").dropna()
+        days = days[days >= 0]
+        if days.empty:
+            st.info("No delivery-day records for the histogram.")
+        else:
+            fig_hist = px.histogram(
+                days.to_frame("delivery_days"),
+                x="delivery_days",
+                nbins=40,
+                template=plotly_template(),
+                title="Delivery Lead-Time Distribution",
+                labels={"delivery_days": "Days from order to delivery"},
+                height=430,
+            )
+            median_days = float(days.median())
+            fig_hist.add_vline(
+                x=median_days,
+                line_dash="dash",
+                line_color="#D1495B",
+                annotation_text=f"Median {median_days:,.0f} d",
+                annotation_position="top right",
+            )
+            fig_hist.update_layout(margin=dict(l=10, r=10, t=60, b=10))
+            st.plotly_chart(fig_hist, width="stretch")
+
 
 def render_correlations(orders: pd.DataFrame) -> None:
     st.subheader("Additional Correlations")
@@ -4574,7 +5639,9 @@ def main() -> None:
             "Quarterly Analytics",
             "Across Years",
             "Platform Analytics",
+            "Turbine Explorer",
             "Country Analytics",
+            "Customer Intelligence",
             "Sankey Flows",
             "Delivery and Capacity",
             "Correlations",
@@ -4595,18 +5662,22 @@ def main() -> None:
     with tabs[4]:
         render_platform_lens(platforms_f)
     with tabs[5]:
-        render_country_lens(orders_f, platforms_f)
+        render_turbine_explorer(platforms_f, orders_f)
     with tabs[6]:
-        render_sankey_flows(orders_f, platforms_f)
+        render_country_lens(orders_f, platforms_f)
     with tabs[7]:
-        render_delivery_capacity(orders_f)
+        render_customer_intelligence(orders_f, platforms_f)
     with tabs[8]:
-        render_correlations(orders_f)
+        render_sankey_flows(orders_f, platforms_f)
     with tabs[9]:
-        render_latest_news()
+        render_delivery_capacity(orders_f)
     with tabs[10]:
-        render_latest_patents()
+        render_correlations(orders_f)
     with tabs[11]:
+        render_latest_news()
+    with tabs[12]:
+        render_latest_patents()
+    with tabs[13]:
         render_information_page()
 
 

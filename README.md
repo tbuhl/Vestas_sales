@@ -41,23 +41,34 @@ python -m streamlit run app.py
 ### Tabs
 - `Overall Economics`
   - Economics KPI cards and time series.
+  - Derived ratios: gross/EBIT margin, service share of revenue, book-to-bill (MW), revenue per employee.
   - Stock candlestick chart with Y2/Y3 overlays.
   - Overlay options include economics metrics plus steel/copper series.
   - Economy year range slider also controls stock/market chart range.
 - `Year-by-Year Overview`
   - Announced vs unannounced MW, order counts, average size.
+  - Year-over-year growth and order-size distribution views.
   - Continent accumulation and market share views.
 - `Quarterly Analytics`
-  - Quarterly announced/unannounced mix and correlations.
+  - Quarterly announced/unannounced mix with trailing 4-quarter trend, plus correlations.
 - `Across Years`
   - Country, platform, service/time, rotor/MW, and customer trends.
 - `Platform Analytics`
   - Timeline, service mix/time, customer and delivery views by platform.
+- `Turbine Explorer`
+  - Full catalog of every turbine variant in the order book: rotor, rating, swept area, specific power.
+  - Technology map (rotor vs rating with specific-power isolines), specific-power trend.
+  - Sales lifecycle Gantt per model and per-model drill-down with indicative family profiles.
+  - CSV download of the catalog.
 - `Country Analytics`
   - Single full-width map (bubble default; switchable to choropleth).
   - Country-level platform/service/delivery summaries.
+- `Customer Intelligence`
+  - Customer concentration (top-1/5/10 share), new vs returning customer MW.
+  - Key account table, cumulative account growth, and per-customer drill-down.
 - `Delivery and Capacity`
   - Installed capacity and delivery-time trends.
+  - Implied delivery pipeline and lead-time distribution.
 - `Correlations`
   - Numeric correlation matrix and delivery-vs-order scatter analysis.
 - `Information`
