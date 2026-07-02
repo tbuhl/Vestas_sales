@@ -4180,6 +4180,29 @@ def render_turbine_explorer(platforms: pd.DataFrame, orders: pd.DataFrame) -> No
             )
 
 
+def style_map_geos(fig: go.Figure, globe: bool) -> None:
+    dark = bool(st.session_state.get("dark_mode", False))
+    if globe:
+        fig.update_geos(
+            projection_type="orthographic",
+            projection_rotation=dict(lon=10, lat=30, roll=0),
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="rgba(148,163,184,0.55)" if dark else "rgba(51,65,85,0.45)",
+            showland=True,
+            landcolor="#16213A" if dark else "#EEF2F7",
+            showocean=True,
+            oceancolor="#0A1226" if dark else "#D3E7F5",
+            showcountries=True,
+            countrycolor="rgba(148,163,184,0.30)" if dark else "rgba(100,116,139,0.35)",
+            showlakes=False,
+            bgcolor="rgba(0,0,0,0)",
+        )
+        fig.update_layout(height=680)
+    else:
+        fig.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+
+
 def render_country_maps(
     orders: pd.DataFrame,
     platforms: pd.DataFrame,
@@ -4305,12 +4328,25 @@ def render_country_maps(
         "orders": "Number of orders",
     }
 
-    map_style = st.selectbox(
-        "Map style",
-        options=["Bubble map", "Choropleth map"],
-        index=0,
-        key="country_map_style",
-    )
+    style_col, proj_col = st.columns([1, 1])
+    with style_col:
+        map_style = st.selectbox(
+            "Map style",
+            options=["Bubble map", "Choropleth map"],
+            index=0,
+            key="country_map_style",
+        )
+    with proj_col:
+        map_projection = st.radio(
+            "Projection",
+            options=["Interactive globe", "Flat map"],
+            index=0,
+            horizontal=True,
+            key="country_map_projection",
+        )
+    globe_view = map_projection == "Interactive globe"
+    if globe_view:
+        st.caption("Drag the globe to spin it, scroll or pinch to zoom, double-click to reset.")
 
     map_geo["orders"] = pd.to_numeric(map_geo["orders"], errors="coerce")
 
@@ -4376,12 +4412,12 @@ def render_country_maps(
                 ),
                 height=600,
             )
-            fig_bubble.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+            style_map_geos(fig_bubble, globe_view)
             fig_bubble.update_layout(
                 coloraxis_colorbar_title=color_metric_labels[bubble_color_metric],
                 margin=dict(l=10, r=10, t=60, b=10),
             )
-            st.plotly_chart(fig_bubble, width="stretch")
+            st.plotly_chart(fig_bubble, width="stretch", config={"scrollZoom": True})
     else:
         choropleth_metric = st.selectbox(
             "Choropleth metric",
@@ -4420,12 +4456,12 @@ def render_country_maps(
                 title=f"Zoomable Choropleth: {map_metric_labels[choropleth_metric]}",
                 height=600,
             )
-            fig_map.update_geos(showframe=False, showcoastlines=True, fitbounds="locations", bgcolor="rgba(0,0,0,0)")
+            style_map_geos(fig_map, globe_view)
             fig_map.update_layout(
                 coloraxis_colorbar_title=map_metric_labels[choropleth_metric],
                 margin=dict(l=10, r=10, t=60, b=10),
             )
-            st.plotly_chart(fig_map, width="stretch")
+            st.plotly_chart(fig_map, width="stretch", config={"scrollZoom": True})
 
 
 def render_country_lens(orders: pd.DataFrame, platforms: pd.DataFrame) -> None:
