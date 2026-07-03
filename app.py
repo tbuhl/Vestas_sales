@@ -752,6 +752,20 @@ def normalize_country(value: Any) -> str:
     return text
 
 
+def geo_country_name(country: Any) -> str:
+    """Canonical geographic country name used for map aggregation.
+
+    Collapses variants that share a single mappable country (e.g.
+    "United States and Canada" -> "United States", "Wales" -> "United Kingdom")
+    so map rows do not end up with duplicate ISO codes.
+    """
+    text = clean_text(country)
+    if text is None:
+        return "Unknown"
+    mapped = GEO_COUNTRY_OVERRIDES.get(text, text)
+    return mapped if mapped is not None else "Unknown"
+
+
 def map_country_for_geo(country: Any) -> str | None:
     text = clean_text(country)
     if text is None:
@@ -4227,6 +4241,13 @@ def render_country_maps(
     map_orders["size_mw"] = pd.to_numeric(map_orders["size_mw"], errors="coerce")
     map_orders["service_time_years"] = pd.to_numeric(map_orders["service_time_years"], errors="coerce")
     map_orders["delivery_days"] = pd.to_numeric(map_orders["delivery_days"], errors="coerce")
+
+    # Collapse country variants that share one mappable ISO code (e.g. "United
+    # States and Canada" -> "United States") BEFORE aggregating. Otherwise plotly
+    # receives multiple rows with the same iso3 and paints only the last one,
+    # which badly understates large markets like the US and UK.
+    map_orders["country"] = map_orders["country"].map(geo_country_name)
+    map_platforms["country"] = map_platforms["country"].map(geo_country_name)
 
     map_base = (
         map_orders.groupby("country", as_index=False)
