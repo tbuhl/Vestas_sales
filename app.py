@@ -4,6 +4,7 @@ import html
 import json
 import math
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -354,7 +355,92 @@ SUMMARY_LABELS = {
 }
 
 SVC_UNKNOWN_VALUES = {"?", "nan", "none", "no info", "not mentioned", "unknown", "0"}
-CUSTOMER_UNKNOWN_VALUES = {"?", "nan", "none", "no info", "not mentioned", "unknown"}
+CUSTOMER_UNKNOWN_VALUES = {
+    "?",
+    "-",
+    "nan",
+    "none",
+    "n/a",
+    "na",
+    "no info",
+    "no information",
+    "not mentioned",
+    "not disclosed",
+    "un disclosed",
+    "undisclosed",
+    "confidential",
+    "unknown",
+}
+CUSTOMER_ALIASES = {
+    # Case, legal-suffix and obvious spelling variants found in the order sheets.
+    "abo wind": "ABO Wind",
+    "abo wind ag": "ABO Wind",
+    "allianz cap": "Allianz Cap",
+    "apex clean energy": "Apex Clean Energy",
+    "baywa": "BayWa",
+    "baywa ag": "BayWa",
+    "capital power": "Capital Power",
+    "casa dos ventos": "Casa dos Ventos",
+    "casa dos ventos energias renovaveis": "Casa dos Ventos",
+    "casa dos ventos energias renovaveis s a": "Casa dos Ventos",
+    "casa dos ventos energias renovavies": "Casa dos Ventos",
+    "clearway energy grou": "Clearway Energy Group",
+    "clearway energy group": "Clearway Energy Group",
+    "dtek renewables": "DTEK Renewables",
+    "e on": "E.ON",
+    "edison": "Edison",
+    "edison spa": "Edison",
+    "enertrag": "ENERTRAG",
+    "enertrag se": "ENERTRAG",
+    "engie": "ENGIE",
+    "enhol": "ENHOL",
+    "eolus vind": "Eolus Vind",
+    "eolus vind ab": "Eolus Vind",
+    "european energy": "European Energy",
+    "european energy as": "European Energy",
+    "eurowind energy": "Eurowind Energy",
+    "ilmatar energy": "Ilmatar Energy",
+    "ilmatar energy oy": "Ilmatar Energy",
+    "inergia spa": "Inergia SpA",
+    "juwi": "JUWI",
+    "juwi gmbh": "JUWI",
+    "mainstream renewable pow": "Mainstream Renewable Power",
+    "mainstream renewable power": "Mainstream Renewable Power",
+    "mibrag": "MIBRAG",
+    "mibrag gmbh": "MIBRAG",
+    "midamerica": "MidAmerican",
+    "midamerican": "MidAmerican",
+    "ox2": "OX2",
+    "ox2 ab": "OX2",
+    "pampa energia": "Pampa Energía",
+    "pampa energia sa": "Pampa Energía",
+    "powerica": "Powerica",
+    "powerica limited": "Powerica",
+    "rabbalshede kraft": "Rabbalshede Kraft",
+    "m rabbalshede kraft ab": "Rabbalshede Kraft",
+    "res america": "RES Americas",
+    "res americas": "RES Americas",
+    "sr energy": "SR Energy",
+    "sr energy ab": "SR Energy",
+    "sse": "SSE",
+    "sse plc": "SSE",
+    "sse generation": "SSE Generation",
+    "sse generation limited": "SSE Generation",
+    "terma energy": "TERNA ENERGY",
+    "terna energy": "TERNA ENERGY",
+    "tilt renewable": "Tilt Renewables",
+    "tilt renewables": "Tilt Renewables",
+    "tuuliwatti": "TuuliWatti",
+    "tuuliwatti oy": "TuuliWatti",
+    "we energies": "We Energies",
+    "windlab": "Windlab",
+    "windlab ltd": "Windlab",
+    "windstrom": "WindStrom",
+    "wpd": "wpd",
+    "wpd gmbh": "wpd",
+    "xcel energy": "Xcel Energy",
+    "xcel enery inc": "Xcel Energy",
+}
 
 
 def apply_page_style(dark_mode: bool) -> None:
@@ -830,9 +916,15 @@ def normalize_customer(value: Any) -> str:
     text = clean_text(value)
     if text is None:
         return "Unknown"
-    norm = text.strip().lower()
+    norm = re.sub(r"\s+", " ", text).strip().lower()
     if norm in CUSTOMER_UNKNOWN_VALUES:
         return "Unknown"
+    alias_key = "".join(
+        char for char in unicodedata.normalize("NFKD", norm) if not unicodedata.combining(char)
+    )
+    alias_key = re.sub(r"[^a-z0-9]+", " ", alias_key).strip()
+    if alias_key in CUSTOMER_ALIASES:
+        return CUSTOMER_ALIASES[alias_key]
     return text
 
 
@@ -840,19 +932,55 @@ def normalize_platform(value: Any) -> str:
     text = clean_text(value)
     if text is None:
         return "Unknown"
+
+    # Model names are hand-entered across many annual sheets. Canonicalise the
+    # harmless spelling differences that would otherwise split one turbine into
+    # several Explorer entries (for example V117-4.2 and V117-4.2MW).
     text = text.upper().replace(",", ".")
+    text = re.sub(r"[\u2010-\u2015\u2212_]", "-", text)
+    text = re.sub(r"^VESTAS\s*", "", text)
     text = re.sub(r"\s+", "", text)
-    if text in {"?", "NAN", "NONE"}:
+    if text in {"?", "NAN", "NONE", "NAT", "N/A", "NA", "UNKNOWN", "UNDISCLOSED"}:
         return "Unknown"
+
+    def format_rating(rating: float, unit: str, *, named_model: bool) -> str:
+        if unit == "MW" and named_model and rating.is_integer():
+            return f"{rating:.1f}"
+        if rating.is_integer():
+            return str(int(rating))
+        return f"{rating:.6f}".rstrip("0").rstrip(".")
+
+    named = re.fullmatch(r"V(\d{2,3})(?:-|/)?(\d+(?:\.\d+)?)(MW|KW)?", text)
+    if named:
+        rotor = int(named.group(1))
+        rating = float(named.group(2))
+        unit = named.group(3) or ("KW" if rating >= 100 else "MW")
+
+        # Treat equivalent unit spellings as the same official-style model.
+        if unit == "KW" and rating >= 1000:
+            rating /= 1000.0
+            unit = "MW"
+        elif unit == "MW" and 0 < rating < 1:
+            rating *= 1000.0
+            unit = "KW"
+
+        return f"V{rotor}-{format_rating(rating, unit, named_model=True)}{unit}"
+
+    generic = re.fullmatch(r"(\d+(?:\.\d+)?)(MW|KW)", text)
+    if generic:
+        rating = float(generic.group(1))
+        unit = generic.group(2)
+        return f"{format_rating(rating, unit, named_model=False)}{unit}"
+
     return text
 
 
 def parse_platform_specs(platform: str) -> tuple[float, float]:
+    platform = normalize_platform(platform)
     if platform == "Unknown":
         return np.nan, np.nan
 
-    p = platform.upper().replace(" ", "")
-    full = re.search(r"V(\d{2,3})-([0-9]+(?:\.[0-9]+)?)(MW|KW)", p)
+    full = re.fullmatch(r"V(\d{2,3})-([0-9]+(?:\.[0-9]+)?)(MW|KW)", platform)
     if full:
         rotor = float(full.group(1))
         power = float(full.group(2))
@@ -860,7 +988,7 @@ def parse_platform_specs(platform: str) -> tuple[float, float]:
             power = power / 1000.0
         return rotor, power
 
-    mw_only = re.search(r"([0-9]+(?:\.[0-9]+)?)(MW|KW)", p)
+    mw_only = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(MW|KW)", platform)
     if mw_only:
         power = float(mw_only.group(1))
         if mw_only.group(2) == "KW":
@@ -868,6 +996,25 @@ def parse_platform_specs(platform: str) -> tuple[float, float]:
         return np.nan, power
 
     return np.nan, np.nan
+
+
+def normalize_order_labels(
+    orders: pd.DataFrame, platforms: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Canonicalise user-entered labels from either a workbook or an older cache."""
+    clean_orders = orders.copy()
+    clean_platforms = platforms.copy()
+
+    if "customer" in clean_orders.columns:
+        clean_orders["customer"] = clean_orders["customer"].map(normalize_customer)
+    if "primary_platform" in clean_orders.columns:
+        clean_orders["primary_platform"] = clean_orders["primary_platform"].map(normalize_platform)
+    if "customer" in clean_platforms.columns:
+        clean_platforms["customer"] = clean_platforms["customer"].map(normalize_customer)
+    if "platform" in clean_platforms.columns:
+        clean_platforms["platform"] = clean_platforms["platform"].map(normalize_platform)
+
+    return clean_orders, clean_platforms
 
 
 def first_text(row: pd.Series, candidates: list[str]) -> str | None:
@@ -1337,6 +1484,7 @@ def parse_oi_sheets(workbook: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
             unannounced.groupby(["sheet_name", "sheet_year", "quarter"], as_index=False)["unannounced_mw"].sum()
         )
 
+    orders, platforms = normalize_order_labels(orders, platforms)
     return orders, platforms, unannounced
 
 
@@ -1344,23 +1492,6 @@ def find_default_workbook() -> Path | None:
     app_dir = Path(__file__).resolve().parent
     parent_dir = app_dir.parent
     search_roots = [Path("."), app_dir, parent_dir]
-    preferred_names = [
-        "Vestas_economical_data_start_2026.xlsx",
-        "Vestas_data_new.xlsx",
-        "vestas_data_new.xlsx",
-    ]
-
-    for root in search_roots:
-        for name in preferred_names:
-            workbook = root / name
-            if not workbook.exists() or workbook.name.startswith("~$"):
-                continue
-            try:
-                sheet_names = pd.ExcelFile(workbook).sheet_names
-            except Exception:
-                continue
-            if resolve_sheet_name(sheet_names, "Vestas Economy") is not None:
-                return workbook
 
     patterns = ("*.xlsx", "*.xlsm", "*.xls")
     files: list[Path] = []
@@ -1390,6 +1521,8 @@ def find_default_workbook() -> Path | None:
             mtime = path.stat().st_mtime
         except Exception:
             mtime = 0.0
+        # Prefer the newest valid Vestas workbook instead of a stale hard-coded
+        # filename; the name is only a deterministic final tie-breaker.
         return (rank, -mtime, name)
 
     for workbook in sorted(files, key=file_priority):
@@ -1493,10 +1626,14 @@ def load_data(cache_key: str, workbook_path: str) -> tuple[pd.DataFrame, pd.Data
         try:
             payload = pd.read_pickle(cache_file)
             if isinstance(payload, dict) and payload.get("cache_key") == cache_key:
-                return (
-                    payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+                orders, platforms = normalize_order_labels(
                     payload.get("orders", pd.DataFrame()),
                     payload.get("platforms", pd.DataFrame()),
+                )
+                return (
+                    payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+                    orders,
+                    platforms,
                     payload.get("unannounced", pd.DataFrame()),
                 )
         except Exception:
@@ -1505,6 +1642,7 @@ def load_data(cache_key: str, workbook_path: str) -> tuple[pd.DataFrame, pd.Data
     workbook = Path(workbook_path)
     economy = parse_economy_sheet(workbook)
     orders, platforms, unannounced = parse_oi_sheets(workbook)
+    orders, platforms = normalize_order_labels(orders, platforms)
 
     try:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1545,10 +1683,14 @@ def load_data_from_cache_only() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFram
         return None
     if not isinstance(payload, dict):
         return None
-    return (
-        payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+    orders, platforms = normalize_order_labels(
         payload.get("orders", pd.DataFrame()),
         payload.get("platforms", pd.DataFrame()),
+    )
+    return (
+        payload.get("economy", pd.DataFrame(columns=["metric", "year", "value"])),
+        orders,
+        platforms,
         payload.get("unannounced", pd.DataFrame()),
     )
 
@@ -3473,21 +3615,42 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
         st.info("No platform rows with MW available.")
         return
 
-    options = sorted(base["platform"].unique().tolist())
-    default_sel = top_n_by_mw(base, "platform", "slot_mw", min(6, len(options)))
-    selected = st.multiselect("Platforms to focus", options=options, default=default_sel)
-    view = base[base["platform"].isin(selected)] if selected else base
+    analysis_level = st.radio(
+        "Analysis level",
+        options=["Rotor family (e.g. V150)", "Exact turbine model"],
+        horizontal=True,
+        key="platform_analysis_level",
+        help="Rotor family combines all power-rating variants with the same rotor, such as every V150 model.",
+    )
+    family_view = analysis_level.startswith("Rotor family")
+    if family_view:
+        base["analysis_platform"] = base["platform"].map(turbine_family)
+        # Keep generic rows such as 2MW and 4MW separate instead of merging all
+        # unnamed platform-level orders into one misleading family.
+        generic = base["analysis_platform"].isin(["Platform-level", "Other"])
+        base.loc[generic, "analysis_platform"] = base.loc[generic, "platform"]
+        entity = "Rotor family"
+        entities = "Rotor families"
+    else:
+        base["analysis_platform"] = base["platform"]
+        entity = "Turbine model"
+        entities = "Turbine models"
 
-    timeline = view.groupby(["order_year", "platform"], as_index=False)["slot_mw"].sum()
+    options = sorted(base["analysis_platform"].unique().tolist())
+    default_sel = top_n_by_mw(base, "analysis_platform", "slot_mw", min(6, len(options)))
+    selected = st.multiselect(f"{entities} to focus", options=options, default=default_sel)
+    view = base[base["analysis_platform"].isin(selected)] if selected else base
+
+    timeline = view.groupby(["order_year", "analysis_platform"], as_index=False)["slot_mw"].sum()
     fig = px.line(
         timeline,
         x="order_year",
         y="slot_mw",
-        color="platform",
+        color="analysis_platform",
         template=plotly_template(),
         markers=True,
-        title="Timeline: Sold MW per Platform per Year",
-        labels={"slot_mw": "MW", "order_year": "Year"},
+        title=f"Timeline: Sold MW per {entity} per Year",
+        labels={"slot_mw": "MW", "order_year": "Year", "analysis_platform": entity},
         height=430,
     )
     fig.update_layout(margin=dict(l=10, r=10, t=60, b=10))
@@ -3495,15 +3658,15 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        svc_heat = view.groupby(["platform", "service_scheme"], as_index=False)["slot_mw"].sum()
-        pivot = svc_heat.pivot(index="platform", columns="service_scheme", values="slot_mw").fillna(0)
+        svc_heat = view.groupby(["analysis_platform", "service_scheme"], as_index=False)["slot_mw"].sum()
+        pivot = svc_heat.pivot(index="analysis_platform", columns="service_scheme", values="slot_mw").fillna(0)
         if not pivot.empty:
             fig_h = px.imshow(
                 pivot,
                 text_auto=".0f",
                 color_continuous_scale="Blues",
                 aspect="auto",
-                title="Across Platforms: Service Scheme Mix (MW)",
+                title=f"Across {entities}: Service Scheme Mix (MW)",
                 height=460,
             )
             fig_h.update_layout(margin=dict(l=10, r=10, t=60, b=10))
@@ -3514,11 +3677,11 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
         if not svc_time.empty:
             fig_b = px.box(
                 svc_time,
-                x="platform",
+                x="analysis_platform",
                 y="service_time_years",
                 template=plotly_template(),
-                title="Across Platforms: Service Time Distribution",
-                labels={"service_time_years": "Service time (years)", "platform": ""},
+                title=f"Across {entities}: Service Time Distribution",
+                labels={"service_time_years": "Service time (years)", "analysis_platform": entity},
                 height=460,
             )
             fig_b.update_layout(xaxis_tickangle=-45, margin=dict(l=10, r=10, t=60, b=10))
@@ -3526,23 +3689,26 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
 
     c3, c4 = st.columns(2)
     with c3:
-        platform_country = view.groupby(["platform", "country"], as_index=False)["slot_mw"].sum()
+        platform_country = view.groupby(["analysis_platform", "country"], as_index=False)["slot_mw"].sum()
         top_pc = platform_country.sort_values("slot_mw", ascending=False).head(140)
         fig_t = px.treemap(
             top_pc,
-            path=["platform", "country"],
+            path=["analysis_platform", "country"],
             values="slot_mw",
             template=plotly_template(),
-            title="Across Platforms: Country Mix",
+            title=f"Across {entities}: Country Mix",
             height=520,
         )
         fig_t.update_layout(margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig_t, width="stretch")
 
     with c4:
-        focus_platform = st.selectbox("Customer view by platform", options=sorted(view["platform"].unique().tolist()))
+        focus_platform = st.selectbox(
+            f"Customer view by {entity.lower()}",
+            options=sorted(view["analysis_platform"].unique().tolist()),
+        )
         customer_data = (
-            view[(view["platform"] == focus_platform) & (view["customer"] != "Unknown")]
+            view[(view["analysis_platform"] == focus_platform) & (view["customer"] != "Unknown")]
             .groupby("customer", as_index=False)["slot_mw"]
             .sum()
             .sort_values("slot_mw", ascending=False)
@@ -3554,7 +3720,7 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
             y="customer",
             orientation="h",
             template=plotly_template(),
-            title=f"Across Platforms: Top Customers for {focus_platform}",
+            title=f"Across {entities}: Top Customers for {focus_platform}",
             labels={"slot_mw": "MW", "customer": ""},
             height=520,
         )
@@ -3563,7 +3729,7 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
 
     platform_delivery = (
         view.dropna(subset=["delivery_days"])
-        .groupby("platform", as_index=False)
+        .groupby("analysis_platform", as_index=False)
         .agg(avg_days=("delivery_days", "mean"), median_days=("delivery_days", "median"), orders=("order_id", "nunique"))
         .sort_values("avg_days", ascending=False)
     )
@@ -3571,11 +3737,11 @@ def render_platform_lens(platforms: pd.DataFrame) -> None:
         fig_d = px.bar(
             platform_delivery.head(20),
             x="avg_days",
-            y="platform",
+            y="analysis_platform",
             orientation="h",
             template=plotly_template(),
-            title="Across Platforms: Average Delivery Time",
-            labels={"avg_days": "Days", "platform": ""},
+            title=f"Across {entities}: Average Delivery Time",
+            labels={"avg_days": "Days", "analysis_platform": entity},
             height=470,
         )
         fig_d.update_layout(yaxis=dict(categoryorder="total ascending"), margin=dict(l=10, r=10, t=60, b=10))
@@ -3772,7 +3938,7 @@ TURBINE_FAMILY_INFO: dict[str, dict[str, Any]] = {
 
 
 def turbine_family(platform: Any) -> str:
-    text = clean_text(platform) or "Unknown"
+    text = normalize_platform(platform)
     match = re.match(r"^(V\d{2,3})-", text.upper())
     if match:
         return match.group(1)
@@ -3820,10 +3986,15 @@ def turbine_generation(family: str, rating: float) -> str:
 
 
 def build_turbine_catalog(platforms: pd.DataFrame) -> pd.DataFrame:
-    base = platforms[(platforms["platform"] != "Unknown") & (platforms["slot_mw"] > 0)].copy()
+    base = platforms[platforms["slot_mw"] > 0].copy()
     if base.empty:
         return pd.DataFrame()
 
+    # Defensive normalisation also makes a legacy cache render correctly.
+    base["platform"] = base["platform"].map(normalize_platform)
+    base = base[base["platform"] != "Unknown"].copy()
+    if base.empty:
+        return pd.DataFrame()
     base["rotor_m"] = pd.to_numeric(base["rotor_m"], errors="coerce")
     base["mw_rating"] = pd.to_numeric(base["mw_rating"], errors="coerce")
     base["turbines_qty"] = pd.to_numeric(base["turbines_qty"], errors="coerce")
@@ -4717,8 +4888,10 @@ def render_customer_intelligence(orders: pd.DataFrame, platforms: pd.DataFrame) 
         st.info("No order rows after filtering.")
         return
 
-    total_mw = float(orders["size_mw"].sum())
-    known = orders[orders["customer"] != "Unknown"].copy()
+    customer_orders = orders.copy()
+    customer_orders["customer"] = customer_orders["customer"].map(normalize_customer)
+    total_mw = float(customer_orders["size_mw"].sum())
+    known = customer_orders[customer_orders["customer"] != "Unknown"].copy()
     if known.empty:
         st.info("No orders with a known customer in the current selection.")
         return
