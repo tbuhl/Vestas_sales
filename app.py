@@ -432,6 +432,8 @@ CUSTOMER_ALIASES = {
     "tilt renewables": "Tilt Renewables",
     "tuuliwatti": "TuuliWatti",
     "tuuliwatti oy": "TuuliWatti",
+    "web windenergie": "WEB Windenergie AG",
+    "web windenergie ag": "WEB Windenergie AG",
     "we energies": "We Energies",
     "windlab": "Windlab",
     "windlab ltd": "Windlab",
@@ -3920,6 +3922,13 @@ TURBINE_FAMILY_INFO: dict[str, dict[str, Any]] = {
         "introduced": "~2022",
         "note": "Largest-rotor EnVentus onshore turbine to date.",
     },
+    "V182": {
+        "segment": "Onshore",
+        "wind_class": "IEC S (low wind)",
+        "hub_heights": "site-specific",
+        "introduced": "first order 2026",
+        "note": "Latest EnVentus rotor evolution; first announced order was for the Staverhult project in Sweden.",
+    },
     "V174": {
         "segment": "Offshore",
         "wind_class": "IEC S",
@@ -3956,7 +3965,7 @@ def turbine_generation(family: str, rating: float) -> str:
         return "Classic MW (V80-V90)"
     if family in {"V100", "V110", "V116", "V120"}:
         return "2 MW platform"
-    if family in {"V162", "V172"}:
+    if family in {"V162", "V172", "V182"}:
         return "EnVentus"
     if family == "V150" and not math.isnan(rating) and rating >= 5.5:
         return "EnVentus"
