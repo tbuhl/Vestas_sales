@@ -61,10 +61,10 @@ def test_duplicate_unannounced_detected(raw):
 
 
 def test_recent_years_reconcile(orders, raw):
-    """data sanity: once unannounced MW is listed, announced + unannounced matches reported intake within 3%."""
+    """data sanity: since 2017, announced + unannounced matches reported intake within 3%."""
     r = outlook.reconcile_intake(orders, raw["unannounced"], raw["economy"])
-    recent = r[(r.index >= 2019) & r["reported_oi"].notna()]
-    assert len(recent) >= 5
+    recent = r[(r.index >= 2017) & r["reported_oi"].notna()]
+    assert len(recent) >= 9
     assert (recent["coverage"].sub(1).abs() <= 0.03).all()
 
 
@@ -233,7 +233,7 @@ def test_economics_table_definitions(raw):
 # ---------------------------------------------------------------- quality + insights
 def test_quality_flags_known_issues(intel):
     checks = " | ".join(intel.anomalies["Check"])
-    assert "Unannounced MW copied across years" in checks
+    assert "Unannounced MW copied across years" not in checks  # fixed in the October 2026 workbook
     assert "Identical economics value in consecutive years" in checks
     assert set(intel.anomalies["Severity"]) <= {"High", "Medium", "Low", "OK", "Info"}
     assert intel.anomalies["Affected"].map(type).eq(str).all()  # Arrow-safe column

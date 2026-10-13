@@ -116,8 +116,9 @@ tests/                  pytest suite (python -m pytest tests)
 - **Outlook** applies the last 7 complete years as analogues, two ways (scale year-to-date by that year's full-year/YTD ratio; add that year's
   post-as-of MW), then adds unannounced MW (listed quarters plus missing quarters at the trailing 8-quarter average).
   It is a scenario range, not a forecast.
-- **Reconciliation**: since 2019 announced + unannounced MW matches reported order intake within about 1%. The 2017 and 2018 unannounced values
-  are identical to 2020's and overshoot reported intake, so the dashboard uses reported intake for those years.
+- **Reconciliation**: since 2017 announced + unannounced MW matches reported order intake within about 1% in every year (a copy-paste error in the
+  2017/2018 unannounced figures was corrected in the October 2026 workbook). Years outside +/-3%, or with unannounced values repeated from
+  another year, are flagged automatically on the Data Quality tab. Before 2017 no unannounced MW is listed, so it is reconstructed as reported intake minus announced.
 - **Quarter-end clustering**: share of MW in the last 14 days of a quarter; the even-spread benchmark is 15%.
 - **Offshore-class** means V164, V174 and V236 platforms (orders carry no onshore/offshore flag, so this is a proxy).
 - **Countries**: region labels (EU, North America, ...) are excluded from country analytics; "United Kingdom - Offshore" and "Wales" are folded into United Kingdom.

@@ -498,8 +498,8 @@ def _section_quality(intel: Intel) -> None:
     st.dataframe(view, width="stretch")
     st.caption(
         "Reported intake before 2017 has no unannounced MW in the workbook, so the 'implied unannounced' column (reported minus announced) reconstructs it. "
-        "2017 and 2018 list the same unannounced values as 2020; because 2020 reconciles exactly and 2017/2018 overshoot, the 2017/2018 listing looks copied. "
-        "The Executive Briefing and Momentum charts use reported intake for those years."
+        "Since 2017 announced + unannounced MW reconciles to reported intake within about 1% in every year (the earlier 2017/2018 copy-paste error in the workbook has been corrected). "
+        "Reconciliation runs automatically: any year outside +/-3%, or with unannounced values repeated from another year, is flagged in the checks above."
     )
 
     details = quality.anomaly_rows(intel.orders)
