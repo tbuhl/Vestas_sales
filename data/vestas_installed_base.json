@@ -1,0 +1,652 @@
+{
+ "source": "Vestas_economical_data_12_oct_2026_compatible.xlsx",
+ "as_of_year": 2023,
+ "generated_utc": "2026-10-12T18:37:05+00:00",
+ "countries": [
+  {
+   "country": "Argentina",
+   "turbines": 563,
+   "installed_mw": 1982.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Aruba",
+   "turbines": 10,
+   "installed_mw": 30.0,
+   "latest_installation_year": 2009
+  },
+  {
+   "country": "Australia",
+   "turbines": 1774,
+   "installed_mw": 5470.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Austria",
+   "turbines": 542,
+   "installed_mw": 1486.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Azerbaijan",
+   "turbines": 2,
+   "installed_mw": 2.0,
+   "latest_installation_year": 2009
+  },
+  {
+   "country": "Bahrain",
+   "turbines": 2,
+   "installed_mw": 2.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Belarus",
+   "turbines": 2,
+   "installed_mw": 4.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Belgium",
+   "turbines": 605,
+   "installed_mw": 2104.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Bolivia",
+   "turbines": 30,
+   "installed_mw": 108.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Brazil",
+   "turbines": 2267,
+   "installed_mw": 8042.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Bulgaria",
+   "turbines": 126,
+   "installed_mw": 323.0,
+   "latest_installation_year": 2013
+  },
+  {
+   "country": "Canada",
+   "turbines": 2210,
+   "installed_mw": 4720.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Cape Verde",
+   "turbines": 39,
+   "installed_mw": 28.0,
+   "latest_installation_year": 2012
+  },
+  {
+   "country": "Chile",
+   "turbines": 584,
+   "installed_mw": 1607.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "China",
+   "turbines": 5536,
+   "installed_mw": 9589.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Colombia",
+   "turbines": 14,
+   "installed_mw": 34.0,
+   "latest_installation_year": 2022
+  },
+  {
+   "country": "Costa Rica",
+   "turbines": 89,
+   "installed_mw": 105.0,
+   "latest_installation_year": 2015
+  },
+  {
+   "country": "Croatia",
+   "turbines": 49,
+   "installed_mw": 132.0,
+   "latest_installation_year": 2015
+  },
+  {
+   "country": "Cuba",
+   "turbines": 4,
+   "installed_mw": 4.0,
+   "latest_installation_year": 2005
+  },
+  {
+   "country": "Curaçao",
+   "turbines": 15,
+   "installed_mw": 47.0,
+   "latest_installation_year": 2017
+  },
+  {
+   "country": "Cyprus",
+   "turbines": 47,
+   "installed_mw": 93.0,
+   "latest_installation_year": 2012
+  },
+  {
+   "country": "Czech Republic",
+   "turbines": 83,
+   "installed_mw": 148.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Denmark",
+   "turbines": 5486,
+   "installed_mw": 4608.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Dominican Republic",
+   "turbines": 77,
+   "installed_mw": 236.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Egypt",
+   "turbines": 192,
+   "installed_mw": 324.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "El Salvador",
+   "turbines": 15,
+   "installed_mw": 54.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Estonia",
+   "turbines": 26,
+   "installed_mw": 114.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Faroe Islands",
+   "turbines": 9,
+   "installed_mw": 27.0,
+   "latest_installation_year": 2022
+  },
+  {
+   "country": "Finland",
+   "turbines": 918,
+   "installed_mw": 4113.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "France",
+   "turbines": 3352,
+   "installed_mw": 8121.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Georgia",
+   "turbines": 6,
+   "installed_mw": 21.0,
+   "latest_installation_year": 2016
+  },
+  {
+   "country": "Germany",
+   "turbines": 9070,
+   "installed_mw": 18598.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Greece",
+   "turbines": 1203,
+   "installed_mw": 2436.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Guatemala",
+   "turbines": 23,
+   "installed_mw": 76.0,
+   "latest_installation_year": 2015
+  },
+  {
+   "country": "Honduras",
+   "turbines": 18,
+   "installed_mw": 59.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Hungary",
+   "turbines": 49,
+   "installed_mw": 105.0,
+   "latest_installation_year": 2010
+  },
+  {
+   "country": "India",
+   "turbines": 5222,
+   "installed_mw": 4436.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Iran",
+   "turbines": 37,
+   "installed_mw": 16.0,
+   "latest_installation_year": 2004
+  },
+  {
+   "country": "Israel",
+   "turbines": 3,
+   "installed_mw": 1.0,
+   "latest_installation_year": 1993
+  },
+  {
+   "country": "Italy",
+   "turbines": 3279,
+   "installed_mw": 5292.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Jamaica",
+   "turbines": 44,
+   "installed_mw": 75.0,
+   "latest_installation_year": 2016
+  },
+  {
+   "country": "Japan",
+   "turbines": 546,
+   "installed_mw": 1154.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Jordan",
+   "turbines": 113,
+   "installed_mw": 353.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Kazakhstan",
+   "turbines": 29,
+   "installed_mw": 100.0,
+   "latest_installation_year": 2019
+  },
+  {
+   "country": "Kenya",
+   "turbines": 379,
+   "installed_mw": 322.0,
+   "latest_installation_year": 2017
+  },
+  {
+   "country": "Latvia",
+   "turbines": 15,
+   "installed_mw": 60.0,
+   "latest_installation_year": 2022
+  },
+  {
+   "country": "Lithuania",
+   "turbines": 18,
+   "installed_mw": 92.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Luxemburg",
+   "turbines": 13,
+   "installed_mw": 9.0,
+   "latest_installation_year": 1999
+  },
+  {
+   "country": "Malaysia",
+   "turbines": 1,
+   "installed_mw": 1.0,
+   "latest_installation_year": 1995
+  },
+  {
+   "country": "Mauritius",
+   "turbines": 1,
+   "installed_mw": 1.0,
+   "latest_installation_year": 1986
+  },
+  {
+   "country": "Mexico",
+   "turbines": 782,
+   "installed_mw": 2484.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Mongolia",
+   "turbines": 50,
+   "installed_mw": 105.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Montserrat",
+   "turbines": 2,
+   "installed_mw": 1.0,
+   "latest_installation_year": 1991
+  },
+  {
+   "country": "Morocco",
+   "turbines": 124,
+   "installed_mw": 170.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Netherlands",
+   "turbines": 1854,
+   "installed_mw": 4160.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "New Caledonia",
+   "turbines": 20,
+   "installed_mw": 5.0,
+   "latest_installation_year": 1999
+  },
+  {
+   "country": "New Zealand",
+   "turbines": 301,
+   "installed_mw": 610.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Nicaragua",
+   "turbines": 44,
+   "installed_mw": 79.0,
+   "latest_installation_year": 2013
+  },
+  {
+   "country": "North Korea",
+   "turbines": 2,
+   "installed_mw": 1.0,
+   "latest_installation_year": 1986
+  },
+  {
+   "country": "Norway",
+   "turbines": 616,
+   "installed_mw": 2303.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Pakistan",
+   "turbines": 28,
+   "installed_mw": 50.0,
+   "latest_installation_year": 2012
+  },
+  {
+   "country": "Panama",
+   "turbines": 20,
+   "installed_mw": 72.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Peru",
+   "turbines": 63,
+   "installed_mw": 112.0,
+   "latest_installation_year": 2014
+  },
+  {
+   "country": "Philippines",
+   "turbines": 70,
+   "installed_mw": 183.0,
+   "latest_installation_year": 2014
+  },
+  {
+   "country": "Poland",
+   "turbines": 1990,
+   "installed_mw": 4565.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Portugal",
+   "turbines": 462,
+   "installed_mw": 1007.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Puerto Rico",
+   "turbines": 26,
+   "installed_mw": 52.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Ireland",
+   "turbines": 704,
+   "installed_mw": 1024.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Romania",
+   "turbines": 404,
+   "installed_mw": 1050.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Russia",
+   "turbines": 269,
+   "installed_mw": 1078.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Saudi Arabia",
+   "turbines": 99,
+   "installed_mw": 416.0,
+   "latest_installation_year": 2021
+  },
+  {
+   "country": "Senegal",
+   "turbines": 46,
+   "installed_mw": 159.0,
+   "latest_installation_year": 2019
+  },
+  {
+   "country": "Serbia",
+   "turbines": 25,
+   "installed_mw": 89.0,
+   "latest_installation_year": 2019
+  },
+  {
+   "country": "Slovakia",
+   "turbines": 4,
+   "installed_mw": 3.0,
+   "latest_installation_year": 2003
+  },
+  {
+   "country": "South Africa",
+   "turbines": 359,
+   "installed_mw": 1001.0,
+   "latest_installation_year": 2022
+  },
+  {
+   "country": "South Korea",
+   "turbines": 215,
+   "installed_mw": 540.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Spain",
+   "turbines": 3310,
+   "installed_mw": 5262.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Sri Lanka",
+   "turbines": 35,
+   "installed_mw": 107.0,
+   "latest_installation_year": 2020
+  },
+  {
+   "country": "Sweden",
+   "turbines": 2638,
+   "installed_mw": 6481.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Switzerland",
+   "turbines": 26,
+   "installed_mw": 49.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Thailand",
+   "turbines": 144,
+   "installed_mw": 353.0,
+   "latest_installation_year": 2018
+  },
+  {
+   "country": "Türkiye",
+   "turbines": 691,
+   "installed_mw": 2077.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Ukraine",
+   "turbines": 227,
+   "installed_mw": 888.0,
+   "latest_installation_year": 2022
+  },
+  {
+   "country": "UAE",
+   "turbines": 20,
+   "installed_mw": 43.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "UK",
+   "turbines": 2695,
+   "installed_mw": 8848.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Uruguay",
+   "turbines": 220,
+   "installed_mw": 564.0,
+   "latest_installation_year": 2019
+  },
+  {
+   "country": "USA",
+   "turbines": 24493,
+   "installed_mw": 42600.0,
+   "latest_installation_year": 2023
+  },
+  {
+   "country": "Vietnam",
+   "turbines": 413,
+   "installed_mw": 1639.0,
+   "latest_installation_year": 2022
+  }
+ ],
+ "turbine_types": [
+  {
+   "turbine_type": "Other",
+   "turbines": 34652,
+   "installed_mw": 23716.0
+  },
+  {
+   "turbine_type": "V80-1_8/2_0",
+   "turbines": 4475,
+   "installed_mw": 8747.0
+  },
+  {
+   "turbine_type": "V90-1_8/2_0",
+   "turbines": 7841,
+   "installed_mw": 15355.0
+  },
+  {
+   "turbine_type": "V90-3_0",
+   "turbines": 3427,
+   "installed_mw": 10247.0
+  },
+  {
+   "turbine_type": "V100-1_8/2_0",
+   "turbines": 5961,
+   "installed_mw": 11713.0
+  },
+  {
+   "turbine_type": "V105-3_45",
+   "turbines": 272,
+   "installed_mw": 975.0
+  },
+  {
+   "turbine_type": "V110-2_0",
+   "turbines": 7166,
+   "installed_mw": 14735.0
+  },
+  {
+   "turbine_type": "V112-3_0/V112-3_3/V112-3_45",
+   "turbines": 4041,
+   "installed_mw": 12912.0
+  },
+  {
+   "turbine_type": "V116-2_1",
+   "turbines": 351,
+   "installed_mw": 702.0
+  },
+  {
+   "turbine_type": "V117-3_3/V117-3_45/V117-4_2",
+   "turbines": 2493,
+   "installed_mw": 8919.0
+  },
+  {
+   "turbine_type": "V120-2_2",
+   "turbines": 3124,
+   "installed_mw": 6798.0
+  },
+  {
+   "turbine_type": "V126-3_3/V126-3_45/V126-4_2",
+   "turbines": 3200,
+   "installed_mw": 11218.0
+  },
+  {
+   "turbine_type": "V136-3_45/V136-4_2/V136-4_5",
+   "turbines": 4370,
+   "installed_mw": 16550.0
+  },
+  {
+   "turbine_type": "V150-4_2",
+   "turbines": 3721,
+   "installed_mw": 15567.0
+  },
+  {
+   "turbine_type": "V150-4_5",
+   "turbines": 1096,
+   "installed_mw": 4914.0
+  },
+  {
+   "turbine_type": "V150-5_6/V150-6_0",
+   "turbines": 234,
+   "installed_mw": 1309.0
+  },
+  {
+   "turbine_type": "V155-3_3/V155-3_6",
+   "turbines": 142,
+   "installed_mw": 467.0
+  },
+  {
+   "turbine_type": "V162-5_6/V162-6_0/V162-6_2",
+   "turbines": 897,
+   "installed_mw": 5278.0
+  },
+  {
+   "turbine_type": "V164-8_0",
+   "turbines": 275,
+   "installed_mw": 2255.0
+  },
+  {
+   "turbine_type": "V164-9_5",
+   "turbines": 297,
+   "installed_mw": 2823.0
+  },
+  {
+   "turbine_type": "V164-10",
+   "turbines": 115,
+   "installed_mw": 1150.0
+  },
+  {
+   "turbine_type": "V174-9_45",
+   "turbines": 78,
+   "installed_mw": 741.0
+  }
+ ],
+ "turbine_total": {
+  "turbine_type": "Total",
+  "turbines": 88228,
+  "installed_mw": 177090.0
+ }
+}

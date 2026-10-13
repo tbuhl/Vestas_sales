@@ -18,6 +18,8 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+from intel.ui import get_intel, render_executive_briefing, render_intelligence_lab
+
 
 APP_TITLE = "Vestas Sales Intelligence Dashboard"
 DATA_DIR = Path("data")
@@ -663,6 +665,20 @@ div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {{
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
   color: {metric_value_color} !important;
   letter-spacing: -0.01em;
+}}
+
+.st-key-header_kpis div[data-testid="stMetricValue"] {{
+  font-size: 1.5rem;
+}}
+
+.st-key-header_kpis div[data-testid="stMetricValue"] > div,
+.st-key-header_kpis div[data-testid="stMetricDelta"] > div {{
+  overflow: visible !important;
+  text-overflow: clip !important;
+}}
+
+.st-key-header_kpis div[data-testid="stMetricDelta"] > div {{
+  white-space: normal !important;
 }}
 
 div[data-testid="stMetricDelta"] {{
@@ -5870,10 +5886,15 @@ def main() -> None:
         st.warning("Filters returned no rows. Adjust the sidebar filters.")
         return
 
-    render_header_metrics(orders_f, platforms_f, unannounced_f)
+    intel = get_intel(economy, orders, platforms, unannounced, stock_monthly, market_monthly)
+
+    with st.container(key="header_kpis"):
+        render_header_metrics(orders_f, platforms_f, unannounced_f)
     tabs = st.tabs(
         [
-            "Overall Economics",
+            "Economy Summary",
+            "Executive Briefing",
+            "Intelligence Lab",
             "Year-by-Year Overview",
             "Quarterly Analytics",
             "Across Years",
@@ -5893,30 +5914,34 @@ def main() -> None:
     with tabs[0]:
         render_overall_economics(economy, stock_monthly, market_monthly)
     with tabs[1]:
-        render_yearly_overview(orders_f, platforms_f, unannounced_f)
+        render_executive_briefing(intel)
     with tabs[2]:
-        render_quarterly_analytics(orders_f, unannounced_f)
+        render_intelligence_lab(intel, orders_f, platforms_f)
     with tabs[3]:
-        render_across_years(orders_f, platforms_f)
+        render_yearly_overview(orders_f, platforms_f, unannounced_f)
     with tabs[4]:
-        render_platform_lens(platforms_f)
+        render_quarterly_analytics(orders_f, unannounced_f)
     with tabs[5]:
-        render_turbine_explorer(platforms_f, orders_f)
+        render_across_years(orders_f, platforms_f)
     with tabs[6]:
-        render_country_lens(orders_f, platforms_f)
+        render_platform_lens(platforms_f)
     with tabs[7]:
-        render_customer_intelligence(orders_f, platforms_f)
+        render_turbine_explorer(platforms_f, orders_f)
     with tabs[8]:
-        render_sankey_flows(orders_f, platforms_f)
+        render_country_lens(orders_f, platforms_f)
     with tabs[9]:
-        render_delivery_capacity(orders_f)
+        render_customer_intelligence(orders_f, platforms_f)
     with tabs[10]:
-        render_correlations(orders_f)
+        render_sankey_flows(orders_f, platforms_f)
     with tabs[11]:
-        render_latest_news()
+        render_delivery_capacity(orders_f)
     with tabs[12]:
-        render_latest_patents()
+        render_correlations(orders_f)
     with tabs[13]:
+        render_latest_news()
+    with tabs[14]:
+        render_latest_patents()
+    with tabs[15]:
         render_information_page()
 
 
