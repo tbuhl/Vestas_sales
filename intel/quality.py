@@ -45,6 +45,14 @@ def completeness_by_year(orders: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("year")
 
 
+def _platform_gap_groups(orders: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Orders whose platform MW differs from order size by >5%: (5-10% band, >10% band)."""
+    rel = (orders["mw_gap"].abs() / orders["size_mw"]).where(orders["size_mw"] > 0)
+    flagged = rel > 0.05
+    big = orders["mw_gap"].abs() > 1.0
+    return orders[flagged & big & (rel <= 0.10)], orders[flagged & big & (rel > 0.10)]
+
+
 def anomaly_summary(
     orders: pd.DataFrame,
     platforms: pd.DataFrame,
@@ -95,14 +103,23 @@ def anomaly_summary(
     if len(neg):
         add("Delivery before order date", "Low", len(neg), f"{len(neg)} orders have a delivery date earlier than the order date (excluded from lead-time medians where noted).")
 
-    gap = orders[(orders["mw_gap"].abs() > np.maximum(1.0, 0.05 * orders["size_mw"]))]
-    if len(gap):
+    small, large = _platform_gap_groups(orders)
+    if len(small):
         add(
-            "Platform MW differs from order size",
+            "Platform MW differs slightly from order size",
+            "Info",
+            len(small),
+            f"{len(small)} orders ({small['size_mw'].sum():,.0f} MW) have platform-level MW within 5-10% of the order size; net difference {small['mw_gap'].sum():,.0f} MW. "
+            "Usually expected: the order is sold at a turbine's nameplate rating (e.g. 4.5 MW) but the site runs a different power mode (e.g. 4.3 MW).",
+        )
+    if len(large):
+        add(
+            "Platform MW differs a lot from order size",
             "Medium",
-            len(gap),
-            f"{len(gap)} orders ({gap['size_mw'].sum():,.0f} MW) have platform-level MW that differs by more than 5% from the order size; "
-            f"net difference {gap['mw_gap'].sum():,.0f} MW.",
+            len(large),
+            f"{len(large)} orders ({large['size_mw'].sum():,.0f} MW) have platform-level MW more than 10% away from the order size "
+            f"({(large['platform_mw_sum'] / large['size_mw']).min():.0%}-{(large['platform_mw_sum'] / large['size_mw']).max():.0%} of it). "
+            "Too large for a power-mode difference: probably an incomplete platform split or an inconsistent entry. Platform-based charts use platform-slot MW, order-based charts use order MW.",
         )
 
     multi = orders[orders["multi_country"] & (orders["country_clean"] != UNKNOWN)]
@@ -152,14 +169,6 @@ def anomaly_summary(
     if len(mismatch):
         add("Order filed on a different year's sheet", "Low", len(mismatch), "Order date year differs from the workbook sheet year.")
 
-    eco_last = int(economy["year"].max()) if economy is not None and not economy.empty else None
-    if eco_last is not None and eco_last < as_of.year:
-        add(
-            "Economics lag the order list",
-            "Info",
-            f"{as_of.year - eco_last} yr",
-            f"Economy data ends in {eco_last}, order data runs to {as_of.date()}; economics-vs-orders comparisons stop at {eco_last}.",
-        )
     for label, frame in (("Stock", stock), ("Steel/copper", market)):
         if frame is not None and not frame.empty:
             last = pd.Timestamp(frame["date"].max())
@@ -176,9 +185,12 @@ def anomaly_rows(orders: pd.DataFrame) -> dict[str, pd.DataFrame]:
     neg = orders[orders["delivery_days"] < 0][cols + ["delivery_days"]]
     if len(neg):
         out["Delivery before order date"] = neg.reset_index(drop=True)
-    gap = orders[(orders["mw_gap"].abs() > np.maximum(1.0, 0.05 * orders["size_mw"]))][cols + ["platform_mw_sum", "mw_gap"]]
-    if len(gap):
-        out["Platform MW differs from order size"] = gap.sort_values("mw_gap", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
+    small, large = _platform_gap_groups(orders)
+    for name, frame in (("Platform MW differs a lot from order size", large), ("Platform MW differs slightly from order size", small)):
+        if len(frame):
+            f = frame[cols + ["platform_mw_sum", "mw_gap"]].copy()
+            f["platform / order"] = (f["platform_mw_sum"] / f["size_mw"]).round(2)
+            out[name] = f.sort_values("mw_gap", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
     multi = orders[orders["multi_country"] & (orders["country_clean"] != UNKNOWN)][cols]
     if len(multi):
         out["Orders without a single country"] = multi.reset_index(drop=True)
